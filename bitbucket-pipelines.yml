@@ -1,0 +1,36 @@
+# image: mcr.microsoft.com/dotnet/sdk:9.0
+
+# pipelines:
+  # branches:
+    # main:
+      # - step:
+          # name: Build & Deploy ASP.NET 9 API
+          # caches:
+            # - dotnetcore
+          # script:
+            # # Install SSH client
+            # - apt-get update && apt-get install -y openssh-client
+
+            # # Setup SSH key
+            # - mkdir -p ~/.ssh
+            # - echo "$DEPLOY_SSH_PRIVATE_KEY" | base64 -d > ~/.ssh/id_rsa
+            # - chmod 600 ~/.ssh/id_rsa
+
+            # # Add server to known hosts (avoid ssh prompts)
+            # - ssh-keyscan -H $DEPLOY_SERVER_IP >> ~/.ssh/known_hosts
+
+            # # Restore and publish
+            # - dotnet restore FamilyBudgeting.API/FamilyBudgeting.API.csproj
+            # - dotnet publish FamilyBudgeting.API/FamilyBudgeting.API.csproj -c Release -r linux-x64 --self-contained false -o publish
+
+            # # Deploy
+            # - ssh -i ~/.ssh/id_rsa root@$DEPLOY_SERVER_IP "
+                # sudo systemctl stop api.service &&
+                # sudo rm -rf /var/www/api/* &&
+                # exit
+              # "
+            # - scp -i ~/.ssh/id_rsa -r publish/* root@$DEPLOY_SERVER_IP:/var/www/api/
+            # - ssh -i ~/.ssh/id_rsa root@$DEPLOY_SERVER_IP "
+                # sudo chown -R www-data:www-data /var/www/api &&
+                # sudo systemctl start api.service
+              # "
