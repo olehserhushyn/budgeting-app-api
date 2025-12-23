@@ -4,7 +4,7 @@ using System.Data;
 
 namespace FamilyBudgeting.Infrastructure.Context
 {
-    public class UnitOfWork : IUnitOfWork
+    public class UnitOfWork : IUnitOfWork, IDisposable
     {
         private readonly ISqlConnectionFactory _connectionFactory;
         private bool _transactionStarted;

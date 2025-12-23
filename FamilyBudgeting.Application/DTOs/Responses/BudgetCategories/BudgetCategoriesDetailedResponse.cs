@@ -8,6 +8,7 @@ namespace FamilyBudgeting.Domain.DTOs.Responses.BudgetCategories
         public Guid CategoryId { get; set; }
         public string CategoryName { get; set; }
         public int PlannedAmount { get; set; }
+        public int InitialPlannedAmount { get; set; }
         public int CurrentAmount { get; set; }
         public int SpentAmount { get; set; }
         public Guid CurrencyId { get; set; }
@@ -20,6 +21,8 @@ namespace FamilyBudgeting.Domain.DTOs.Responses.BudgetCategories
 
         [NotMapped]
         public double FormattedPlannedAmount => CurrencyFractionalUnitFactor <= 0 ? 0 : (double)PlannedAmount / this.CurrencyFractionalUnitFactor;
+        [NotMapped]
+        public double FormattedInitialPlannedAmount => CurrencyFractionalUnitFactor <= 0 ? 0 : (double)PlannedAmount / this.CurrencyFractionalUnitFactor;
 
         [NotMapped]
         public double FormattedCurrentAmount => CurrencyFractionalUnitFactor <= 0 ? 0 : (double)CurrentAmount / this.CurrencyFractionalUnitFactor;

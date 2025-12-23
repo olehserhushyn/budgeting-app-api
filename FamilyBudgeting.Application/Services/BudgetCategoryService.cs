@@ -63,11 +63,13 @@ namespace FamilyBudgeting.Domain.Services
             var oldbCategory = await _budgetCategoryQueryService.GetBudgetCategoryAsync(id);
 
             BudgetCategory budgetCategory = new BudgetCategory(oldbCategory.BudgetId, oldbCategory.CategoryId,
-                oldbCategory.CurrencyId, oldbCategory.PlannedAmount, oldbCategory.CurrentAmount);
+                oldbCategory.CurrencyId, oldbCategory.PlannedAmount, oldbCategory.CurrentAmount, 
+                oldbCategory.InitialPlannedAmount);
 
-            int centsAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, oldbCategory.CurrencyFractionalUnitFactor);
+            int centsPlannedAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, oldbCategory.CurrencyFractionalUnitFactor);
+            int centsInitialAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, oldbCategory.CurrencyFractionalUnitFactor);
 
-            budgetCategory.Update(oldbCategory.CategoryId, centsAmount);
+            budgetCategory.Update(oldbCategory.CategoryId, centsPlannedAmount, centsInitialAmount);
 
             await _budgetCategoryRepository.UpdateBudgetCategoryAsync(id, budgetCategory);
 
@@ -138,6 +140,7 @@ namespace FamilyBudgeting.Domain.Services
             }
 
             int centsPlannedAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, currency.FractionalUnitFactor);
+            int centsInitialPlannedAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, currency.FractionalUnitFactor);
             bool isIncome = TransactionTypes.IsIncome(request.TransactionTypeId);
             int centsCurrentAmount = isIncome ? 0 : centsPlannedAmount;
 
@@ -146,7 +149,8 @@ namespace FamilyBudgeting.Domain.Services
                 categoryId,
                 request.CurrencyId,
                 centsPlannedAmount,
-                centsCurrentAmount
+                centsCurrentAmount,
+                centsPlannedAmount
             );
 
             Guid budgetCategoryId = await _budgetCategoryRepository.CreateBudgetCategoryAsync(budgetCategory);
@@ -156,9 +160,16 @@ namespace FamilyBudgeting.Domain.Services
         public async Task<Result> DeleteBudgetCategoryAsync(Guid id)
         {
             var oldbCategory = await _budgetCategoryQueryService.GetBudgetCategoryAsync(id);
+
             if (oldbCategory is null)
+            {
                 return Result.NotFound($"Budget Category not found: {id}");
-            var budgetCategory = new BudgetCategory(oldbCategory.BudgetId, oldbCategory.CategoryId, oldbCategory.CurrencyId, oldbCategory.PlannedAmount, oldbCategory.CurrentAmount) { Id = oldbCategory.Id };
+            }
+                
+            var budgetCategory = new BudgetCategory(oldbCategory.BudgetId, oldbCategory.CategoryId, 
+                oldbCategory.CurrencyId, oldbCategory.PlannedAmount, 
+                oldbCategory.CurrentAmount, oldbCategory.InitialPlannedAmount) { Id = oldbCategory.Id };
+
             budgetCategory.Delete();
             await _budgetCategoryRepository.UpdateBudgetCategoryAsync(id, budgetCategory);
             return Result.Success();
@@ -197,13 +208,15 @@ namespace FamilyBudgeting.Domain.Services
                 {
                     // 4. Filter by mode
                     if (request.Mode == ImportBudgetCategoriesMode.DefaultOnly && cat.PlannedAmount != cat.CurrentAmount)
+                    {
                         continue;
+                    }
 
-                    double plannedAmount = cat.PlannedAmount;
+                    double initialPlannedAmount = cat.InitialPlannedAmount;
                     // carry over only for expenses
                     if (request.Mode == ImportBudgetCategoriesMode.CarryOver && cat.TransactionTypeTitle == TransactionTypes.Expense)
                     {
-                        plannedAmount = cat.PlannedAmount + cat.CurrentAmount;
+                        initialPlannedAmount = cat.InitialPlannedAmount + cat.CurrentAmount;
                     }
 
                     // 5. Create new category in target budget (no transaction handling here)
@@ -211,7 +224,7 @@ namespace FamilyBudgeting.Domain.Services
                         cat.CategoryName,
                         request.TargetBudgetId,
                         cat.CurrencyId,
-                        plannedAmount / (cat.CurrencyFractionalUnitFactor > 0 ? cat.CurrencyFractionalUnitFactor : 1),
+                        initialPlannedAmount / (cat.CurrencyFractionalUnitFactor > 0 ? cat.CurrencyFractionalUnitFactor : 1),
                         cat.TransactionTypeId
                     );
                     var result = await CreateBudgetCategoryInternalAsync(userId, createRequest);

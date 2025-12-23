@@ -251,7 +251,9 @@ namespace FamilyBudgeting.Domain.Services
                         return Result.NotFound("Budget Category not found");
                     }
 
-                    BudgetCategory budgetCategory = new BudgetCategory(request.BudgetId.Value, budgetCategoryDto.CategoryId, budgetCategoryDto.CurrencyId, budgetCategoryDto.PlannedAmount, budgetCategoryDto.CurrentAmount);
+                    BudgetCategory budgetCategory = new BudgetCategory(request.BudgetId.Value, 
+                        budgetCategoryDto.CategoryId, budgetCategoryDto.CurrencyId, budgetCategoryDto.PlannedAmount, 
+                        budgetCategoryDto.CurrentAmount, budgetCategoryDto.InitialPlannedAmount);
                     budgetCategory.AddTransaction(centsAmountWithSign);
 
                     var budgetCategoryResult = await _budgetCategoryRepository.UpdateBudgetCategoryAsync(budgetCategoryDto.Id, budgetCategory);
@@ -359,7 +361,7 @@ namespace FamilyBudgeting.Domain.Services
                     var budgetCategory = new BudgetCategory(
                         request.BudgetId.Value, budgetCategoryDto.CategoryId,
                         budgetCategoryDto.CurrencyId, budgetCategoryDto.PlannedAmount,
-                        budgetCategoryDto.CurrentAmount);
+                        budgetCategoryDto.CurrentAmount, budgetCategoryDto.InitialPlannedAmount);
 
                     budgetCategory.AddTransaction(
                         TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title));

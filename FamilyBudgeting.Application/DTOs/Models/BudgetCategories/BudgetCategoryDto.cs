@@ -9,6 +9,7 @@
         public Guid CategoryId { get; set; }
         public Guid CurrencyId { get; set; }
         public int PlannedAmount { get; set; }
+        public int InitialPlannedAmount { get; set; }
         public int CurrentAmount { get; set; }
         public int CurrencyFractionalUnitFactor { get; set; }
     }

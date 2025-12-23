@@ -8,6 +8,7 @@ namespace FamilyBudgeting.Domain.DTOs.Responses.BudgetCategories
         public Guid CategoryId { get; set; }
         public string CategoryName { get; set; }
         public int PlannedAmount { get; set; }
+        public int InitialPlannedAmount { get; set; }
         public int CurrentAmount { get; set; }
         public Guid CurrencyId { get; set; }
         public string CurrencyCode { get; set; }  // ISO 4217 currency code (e.g., USD, EUR)

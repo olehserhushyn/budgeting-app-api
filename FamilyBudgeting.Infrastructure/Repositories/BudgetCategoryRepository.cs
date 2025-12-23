@@ -21,9 +21,9 @@ namespace FamilyBudgeting.Infrastructure.Repositories
         {
             string query = @"
                 INSERT INTO ""BudgetCategory""
-                (""BudgetId"", ""CategoryId"", ""CurrencyId"", ""PlannedAmount"", ""CurrentAmount"")
+                (""BudgetId"", ""CategoryId"", ""CurrencyId"", ""PlannedAmount"", ""CurrentAmount"", ""InitialPlannedAmount"")
                 VALUES
-                (@BudgetId, @CategoryId, @CurrencyId, @PlannedAmount, @CurrentAmount)
+                (@BudgetId, @CategoryId, @CurrencyId, @PlannedAmount, @CurrentAmount, @InitialPlannedAmount)
                 RETURNING ""Id"";
                 ";
 
@@ -33,7 +33,8 @@ namespace FamilyBudgeting.Infrastructure.Repositories
                 CategoryId = budgetCategory.CategoryId,
                 CurrencyId = budgetCategory.CurrencyId,
                 PlannedAmount = budgetCategory.PlannedAmount,
-                CurrentAmount = budgetCategory.CurrentAmount
+                CurrentAmount = budgetCategory.CurrentAmount,
+                InitialPlannedAmount = budgetCategory.InitialPlannedAmount
             };
 
             _logger.LogQuery(query, qparams);
@@ -51,6 +52,7 @@ namespace FamilyBudgeting.Infrastructure.Repositories
                     ""CurrencyId"" = @CurrencyId,
                     ""PlannedAmount"" = @PlannedAmount,
                     ""CurrentAmount"" = @CurrentAmount,
+                    ""InitialPlannedAmount"" = @InitialPlannedAmount,
                     ""UpdatedAt"" = @UpdatedAt,
                     ""IsDeleted"" = @IsDeleted
                 WHERE ""Id"" = @Id;
@@ -64,6 +66,7 @@ namespace FamilyBudgeting.Infrastructure.Repositories
                 CurrencyId = budgetCategory.CurrencyId,
                 PlannedAmount = budgetCategory.PlannedAmount,
                 CurrentAmount = budgetCategory.CurrentAmount,
+                InitialPlannedAmount = budgetCategory.InitialPlannedAmount,
                 UpdatedAt = budgetCategory.UpdatedAt,
                 IsDeleted = budgetCategory.IsDeleted
             };

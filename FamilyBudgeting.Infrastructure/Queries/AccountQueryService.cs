@@ -62,7 +62,7 @@ namespace FamilyBudgeting.Infrastructure.Queries
                 .QueryFirstOrDefaultAsync<Domain.DTOs.Models.Accounts.AccountCurrencyDetailsDto>(query, qparams, _unitOfWork.Transaction);
         }
 
-        public IQueryBuilder<AccountCurrencyDetailsDto?> GetAccountCurrencyDetailsAsync(Guid accountId)
+        public IQueryBuilder<AccountCurrencyDetailsDto> GetAccountCurrencyDetailsAsync(Guid accountId)
         {
             string query = @"
                 SELECT a.""Id"" as AccountId, a.""UserId"", a.""AccountTypeId"", a.""Title"" as AccountTitle, 

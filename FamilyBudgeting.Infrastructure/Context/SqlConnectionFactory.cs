@@ -4,7 +4,7 @@ using System.Data;
 
 namespace FamilyBudgeting.Infrastructure.Context
 {
-    public class SqlConnectionFactory : ISqlConnectionFactory
+    public class SqlConnectionFactory : ISqlConnectionFactory, IDisposable
     {
         private readonly NpgsqlDataSource _dataSource;
         private IDbConnection _connection;
