@@ -67,7 +67,7 @@ namespace FamilyBudgeting.Domain.Services
                 oldbCategory.InitialPlannedAmount);
 
             int centsPlannedAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, oldbCategory.CurrencyFractionalUnitFactor);
-            int centsInitialAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, oldbCategory.CurrencyFractionalUnitFactor);
+            int centsInitialAmount = MoneyConverter.ConvertToCents(request.InitialPlannedAmount, oldbCategory.CurrencyFractionalUnitFactor);
 
             budgetCategory.Update(oldbCategory.CategoryId, centsPlannedAmount, centsInitialAmount);
 

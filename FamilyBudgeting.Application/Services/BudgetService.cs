@@ -84,7 +84,7 @@ namespace FamilyBudgeting.Domain.Services
                 BudgetStartDate = budget.StartDate,
                 BudgetEndDate = budget.EndDate,
                 BudgetCategories = categories?.ToList() ?? new(),
-                ExpenseTotalPlannedAmount = categories?.Where(c => c.TransactionTypeTitle == CategoryTypes.Expense).Sum(c => c.PlannedAmount) ?? 0,
+                ExpenseTotalPlannedAmount = categories?.Where(c => c.TransactionTypeTitle == CategoryTypes.Expense).Sum(c => c.PlannedAmount < 0 ? 0 : c.PlannedAmount) ?? 0,
                 ExpenseTotalSpentAmount = categories?.Where(c => c.TransactionTypeTitle == CategoryTypes.Expense).Sum(c => c.SpentAmount) ?? 0,
                 IncomeTotalPlannedAmount = categories?.Where(c => c.TransactionTypeTitle == CategoryTypes.Income).Sum(c => c.PlannedAmount) ?? 0,
                 IncomeTotalSpentAmount = categories?.Where(c => c.TransactionTypeTitle == CategoryTypes.Income).Sum(c => c.SpentAmount) ?? 0,

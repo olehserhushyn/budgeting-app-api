@@ -22,7 +22,7 @@ namespace FamilyBudgeting.Domain.DTOs.Responses.BudgetCategories
         [NotMapped]
         public double FormattedPlannedAmount => CurrencyFractionalUnitFactor <= 0 ? 0 : (double)PlannedAmount / this.CurrencyFractionalUnitFactor;
         [NotMapped]
-        public double FormattedInitialPlannedAmount => CurrencyFractionalUnitFactor <= 0 ? 0 : (double)PlannedAmount / this.CurrencyFractionalUnitFactor;
+        public double FormattedInitialPlannedAmount => CurrencyFractionalUnitFactor <= 0 ? 0 : (double)InitialPlannedAmount / this.CurrencyFractionalUnitFactor;
 
         [NotMapped]
         public double FormattedCurrentAmount => CurrencyFractionalUnitFactor <= 0 ? 0 : (double)CurrentAmount / this.CurrencyFractionalUnitFactor;
