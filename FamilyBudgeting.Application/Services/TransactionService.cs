@@ -73,14 +73,14 @@ namespace FamilyBudgeting.Domain.Services
                 var ledgerResult = await ResolveLedgerForCreateAsync(userId, request.LedgerId);
                 if (!ledgerResult.IsSuccess)
                 {
-                    return Result.NotFound(ledgerResult.Errors.First());
+                    return await RollbackCreateTransactionAsync(ledgerResult.Status, ledgerResult.Errors.FirstOrDefault() ?? "No ledgers found for the user");
                 }
                 Guid existingLedgerId = ledgerResult.Value;
 
                 var accessResult = await EnsureLedgerAccessAsync(userId, existingLedgerId);
                 if (!accessResult.IsSuccess)
                 {
-                    return Result.Forbidden(accessResult.Errors.First());
+                    return await RollbackCreateTransactionAsync(accessResult.Status, accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
                 }
 
                 // account-currency
@@ -90,6 +90,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (accountDto is null || accountDto.UserId != userId)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.NotFound("Account not found or does not belong to the user");
                 }
 
@@ -99,7 +100,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (transactionType is null)
                 {
-                    return Result.NotFound("Transaction type not found");
+                    return await RollbackCreateTransactionAsync(ResultStatus.NotFound, "Transaction type not found");
                 }
 
                 int centsAmountWithSign = TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title);
@@ -107,9 +108,9 @@ namespace FamilyBudgeting.Domain.Services
                 var categoryResolutionResult = await ResolveCategoryForCreateAsync(userId, existingLedgerId, request);
                 if (!categoryResolutionResult.IsSuccess)
                 {
-                    return categoryResolutionResult.Errors.Any()
-                        ? Result.Error(categoryResolutionResult.Errors.First())
-                        : Result.Error("Failed to resolve category");
+                    return await RollbackCreateTransactionAsync(
+                        categoryResolutionResult.Status,
+                        categoryResolutionResult.Errors.FirstOrDefault() ?? "Failed to resolve category");
                 }
 
                 var (categoryId, updatedRequest) = categoryResolutionResult.Value;
@@ -127,7 +128,7 @@ namespace FamilyBudgeting.Domain.Services
                     var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(existingLedgerId, request.BudgetId.Value, request.BudgetCategoryId.Value);
                     if (budgetCategoryDto is null)
                     {
-                        return Result.NotFound("Budget Category not found");
+                        return await RollbackCreateTransactionAsync(ResultStatus.NotFound, "Budget Category not found");
                     }
 
                     BudgetCategory budgetCategory = new BudgetCategory(request.BudgetId.Value, 
@@ -149,6 +150,11 @@ namespace FamilyBudgeting.Domain.Services
                 account.AddTransaction(centsAmountWithSign);
 
                 bool accountResult = await _accountRepository.UpdateAccountAsync(accountDto.AccountId, account);
+                if (!accountResult)
+                {
+                    await _unitOfWork.RollbackTransactionAsync();
+                    return Result.Error("Unexpected error during updating account");
+                }
 
                 await _unitOfWork.CommitTransactionAsync();
 
@@ -159,6 +165,20 @@ namespace FamilyBudgeting.Domain.Services
                 await _unitOfWork.RollbackTransactionAsync();
                 throw;
             }
+        }
+
+
+        private async Task<Result<Guid>> RollbackCreateTransactionAsync(ResultStatus status, string message)
+        {
+            await _unitOfWork.RollbackTransactionAsync();
+
+            return status switch
+            {
+                ResultStatus.NotFound => Result.NotFound(message),
+                ResultStatus.Forbidden => Result.Forbidden(message),
+                ResultStatus.Invalid => Result.Invalid(new[] { new ValidationError { ErrorMessage = message } }),
+                _ => Result.Error(message)
+            };
         }
 
         private async Task<Result<Guid>> ResolveLedgerForCreateAsync(Guid userId, Guid? ledgerId)
@@ -309,6 +329,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (accountDto is null || accountDto.UserId != userId)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.NotFound("Account not found or does not belong to the user");
                 }
 
@@ -439,6 +460,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (accountDto is null || accountDto.UserId != userId)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.NotFound("Account not found or does not belong to the user");
                 }
 
@@ -466,6 +488,11 @@ namespace FamilyBudgeting.Domain.Services
                 account.RemoveTransaction(existingTransactionType.Title == TransactionTypes.Expense ? existingTransaction.Amount * -1 : existingTransaction.Amount);
 
                 bool accountResult = await _accountRepository.UpdateAccountAsync(accountDto.AccountId, account);
+                if (!accountResult)
+                {
+                    await _unitOfWork.RollbackTransactionAsync();
+                    return Result.Error("Unexpected error during updating account");
+                }
 
                 await _unitOfWork.CommitTransactionAsync();
 
