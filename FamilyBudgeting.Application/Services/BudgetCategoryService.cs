@@ -140,7 +140,6 @@ namespace FamilyBudgeting.Domain.Services
             }
 
             int centsPlannedAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, currency.FractionalUnitFactor);
-            int centsInitialPlannedAmount = MoneyConverter.ConvertToCents(request.PlannedAmount, currency.FractionalUnitFactor);
             bool isIncome = TransactionTypes.IsIncome(request.TransactionTypeId);
             int centsCurrentAmount = isIncome ? 0 : centsPlannedAmount;
 
@@ -150,7 +149,7 @@ namespace FamilyBudgeting.Domain.Services
                 request.CurrencyId,
                 centsPlannedAmount,
                 centsCurrentAmount,
-                centsPlannedAmount
+                request.initialPlannedAmount
             );
 
             Guid budgetCategoryId = await _budgetCategoryRepository.CreateBudgetCategoryAsync(budgetCategory);
@@ -212,11 +211,11 @@ namespace FamilyBudgeting.Domain.Services
                         continue;
                     }
 
-                    double initialPlannedAmount = cat.InitialPlannedAmount;
+                    double plannedAmount = cat.InitialPlannedAmount;
                     // carry over only for expenses
                     if (request.Mode == ImportBudgetCategoriesMode.CarryOver && cat.TransactionTypeTitle == TransactionTypes.Expense)
                     {
-                        initialPlannedAmount = cat.InitialPlannedAmount + cat.CurrentAmount;
+                        plannedAmount = cat.InitialPlannedAmount + cat.CurrentAmount;
                     }
 
                     // 5. Create new category in target budget (no transaction handling here)
@@ -224,7 +223,8 @@ namespace FamilyBudgeting.Domain.Services
                         cat.CategoryName,
                         request.TargetBudgetId,
                         cat.CurrencyId,
-                        initialPlannedAmount / (cat.CurrencyFractionalUnitFactor > 0 ? cat.CurrencyFractionalUnitFactor : 1),
+                        plannedAmount / (cat.CurrencyFractionalUnitFactor > 0 ? cat.CurrencyFractionalUnitFactor : 1),
+                        cat.InitialPlannedAmount,
                         cat.TransactionTypeId
                     );
                     var result = await CreateBudgetCategoryInternalAsync(userId, createRequest);

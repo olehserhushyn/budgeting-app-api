@@ -182,7 +182,7 @@ namespace FamilyBudgeting.Domain.Services
                         }
 
                         // Create budget category with planned amount 0
-                        var createBudgetCategoryReq = new DTOs.Requests.Categories.CreateBudgetCategoryRequest(request.BudgetCategoryTitle, request.BudgetId.Value, currency.Id, 0, request.TransactionTypeId);
+                        var createBudgetCategoryReq = new DTOs.Requests.Categories.CreateBudgetCategoryRequest(request.BudgetCategoryTitle, request.BudgetId.Value, currency.Id, 0, 0, request.TransactionTypeId);
                         var createBudgetCatRes = await _budgetCategoryService.CreateBudgetCategoryAsync(userId, createBudgetCategoryReq);
                         if (createBudgetCatRes.Status != Ardalis.Result.ResultStatus.Ok)
                         {
