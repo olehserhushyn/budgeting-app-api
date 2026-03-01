@@ -319,6 +319,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (existingTransaction is null)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.NotFound("Unable to update transaction. Transaction was not found.");
                 }
 
@@ -345,6 +346,7 @@ namespace FamilyBudgeting.Domain.Services
                 bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(userId, existingLedgerId.Value);
                 if (!hasAccess)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.Forbidden("User does not have access to this ledger");
                 }
 
@@ -468,6 +470,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (existingTransactionType is null)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.NotFound("Transaction type not found");
                 }
 
@@ -475,12 +478,12 @@ namespace FamilyBudgeting.Domain.Services
                     existingTransaction.CurrencyId, existingTransaction.Amount, existingTransaction.Date, existingTransaction.Note, existingTransaction.BudgetId, existingTransaction.UserId, existingTransaction.BudgetCategoryId);
                 
                 transaction.Delete();
-                var tranResult = await _transactionRepository.UpdateTransactionAsync(existingTransactionType.Id, transaction);
+                var tranResult = await _transactionRepository.UpdateTransactionAsync(request.TransactionId, transaction);
 
                 if (!tranResult)
                 {
                     await _unitOfWork.RollbackTransactionAsync();
-                    return Result.Error("Unexpected error during creating transaction");
+                    return Result.Error("Unexpected error during deleting transaction");
                 }
 
                 // adjust account balance
