@@ -340,6 +340,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (existingLedgerId == null)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.NotFound("No ledgers found for the user");
                 }
 
@@ -357,6 +358,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (transactionType is null || existingTransactionType is null)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.NotFound("Transaction type not found");
                 }
 
@@ -444,6 +446,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (!hasAccess)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.Forbidden("User does not have access to this ledger");
                 }
 
@@ -452,6 +455,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (existingTransaction is null)
                 {
+                    await _unitOfWork.RollbackTransactionAsync();
                     return Result.NotFound("Unable to update transaction. Transaction was not found.");
                 }
 
