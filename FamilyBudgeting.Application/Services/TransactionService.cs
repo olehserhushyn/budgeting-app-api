@@ -70,32 +70,17 @@ namespace FamilyBudgeting.Domain.Services
             {
                 await _unitOfWork.BeginTransactionAsync();
 
-                // ledger
-                Guid existingLedgerId = Guid.Empty;
-
-                if (request.LedgerId is null)
+                var ledgerResult = await ResolveLedgerForCreateAsync(userId, request.LedgerId);
+                if (!ledgerResult.IsSuccess)
                 {
-                    var firstLedger = await _ledgerQueryService.GetUserLedgerFirstAsync(userId);
-                    if (firstLedger is not null)
-                    {
-                        existingLedgerId = firstLedger.Id;
-                    }
-                    else
-                    {
-                        return Result.NotFound("No ledgers found for the user");
-                    }
+                    return Result.NotFound(ledgerResult.Errors.First());
                 }
-                else
-                {
-                    existingLedgerId = request.LedgerId.Value;
-                }
+                Guid existingLedgerId = ledgerResult.Value;
 
-                // access
-                bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(userId, existingLedgerId);
-
-                if (!hasAccess)
+                var accessResult = await EnsureLedgerAccessAsync(userId, existingLedgerId);
+                if (!accessResult.IsSuccess)
                 {
-                    return Result.Forbidden("User does not have access to this ledger");
+                    return Result.Forbidden(accessResult.Errors.First());
                 }
 
                 // account-currency
@@ -119,122 +104,16 @@ namespace FamilyBudgeting.Domain.Services
 
                 int centsAmountWithSign = TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title);
 
-                // --- NEW LOGIC: If CategoryId is not provided, allow CategoryTitle or BudgetCategoryTitle to be provided and create categories on the fly ---
-                Guid? categoryId = request.CategoryId;
-
-                // If budget category title provided, try to find or create budget category
-                if (categoryId == null && !string.IsNullOrWhiteSpace(request.BudgetCategoryTitle) && request.BudgetId is not null)
+                var categoryResolutionResult = await ResolveCategoryForCreateAsync(userId, existingLedgerId, request);
+                if (!categoryResolutionResult.IsSuccess)
                 {
-                    // Try to find existing budget category by title for the budget
-                    var existingBudgetCategories = await _budgetCategoryQueryService.GetBudgetCategoriesDetailedAsync(existingLedgerId, request.BudgetId.Value);
-                    var matched = existingBudgetCategories.FirstOrDefault(bc => bc.CategoryName.Equals(request.BudgetCategoryTitle, StringComparison.OrdinalIgnoreCase));
-                    if (matched is not null)
-                    {
-                        categoryId = matched.CategoryId;
-                        request = request with { BudgetCategoryId = matched.Id };
-                    }
-                    else
-                    {
-                        // Need to create a budget category: for that we might need currency and transaction type
-                        // Determine currency: use first currency from ledger via existing budget categories or default from budgets
-                        var budget = await _budgetQueryService.GetBudgetAsync(request.BudgetId.Value);
-                        if (budget is null)
-                        {
-                            await _unitOfWork.RollbackTransactionAsync();
-                            return Result.NotFound("Budget not found");
-                        }
-
-                        // Use currency from first budget category currency or default to first currency in ledger
-                        // For simplicity, pick first currency from currency query service
-                        var currencies = await _currencyQueryService.GetCurrenciesFromLedgerAsync();
-                        var currency = currencies.FirstOrDefault();
-                        if (currency is null)
-                        {
-                            await _unitOfWork.RollbackTransactionAsync();
-                            return Result.NotFound("Currency not found for creating budget category");
-                        }
-
-                        // Determine transaction type id
-                        var txType = await _transactionTypeQueryService.GetTransactionTypeAsync(request.TransactionTypeId);
-                        if (txType is null)
-                        {
-                            await _unitOfWork.RollbackTransactionAsync();
-                            return Result.NotFound("Transaction type not found");
-                        }
-
-                        // Create or get base category
-                        var existingCategory = await _categoryQueryService.GetCategoryAsync(request.BudgetCategoryTitle);
-                        Guid baseCategoryId;
-                        if (existingCategory is null)
-                        {
-                            var createLedgerCategoryReq = new DTOs.Requests.Categories.CreateLedgerCategoryRequest(existingLedgerId, request.BudgetCategoryTitle, request.TransactionTypeId);
-                            var createCatRes = await _categoryService.CreateLedgerCategoryAsync(createLedgerCategoryReq);
-                            if (createCatRes.Status != Ardalis.Result.ResultStatus.Ok)
-                            {
-                                await _unitOfWork.RollbackTransactionAsync();
-                                return Result.Error("Failed to create base category for budget category");
-                            }
-                            baseCategoryId = createCatRes.Value;
-                        }
-                        else
-                        {
-                            baseCategoryId = existingCategory.Id;
-                        }
-
-                        // Create budget category with planned amount 0
-                        var createBudgetCategoryReq = new DTOs.Requests.Categories.CreateBudgetCategoryRequest(request.BudgetCategoryTitle, request.BudgetId.Value, currency.Id, 0, request.TransactionTypeId);
-                        var createBudgetCatRes = await _budgetCategoryService.CreateBudgetCategoryAsync(userId, createBudgetCategoryReq);
-                        if (createBudgetCatRes.Status != Ardalis.Result.ResultStatus.Ok)
-                        {
-                            await _unitOfWork.RollbackTransactionAsync();
-                            return Result.Error("Failed to create budget category");
-                        }
-
-                        // After creating, fetch newly created budget category to get ids
-                        var createdBudgetCategories = await _budgetCategoryQueryService.GetBudgetCategoriesDetailedAsync(existingLedgerId, request.BudgetId.Value);
-                        var created = createdBudgetCategories.FirstOrDefault(bc => bc.CategoryName.Equals(request.BudgetCategoryTitle, StringComparison.OrdinalIgnoreCase));
-                        if (created is null)
-                        {
-                            await _unitOfWork.RollbackTransactionAsync();
-                            return Result.Error("Failed to retrieve created budget category");
-                        }
-                        categoryId = created.CategoryId;
-                        request = request with { BudgetCategoryId = created.Id };
-                    }
+                    return categoryResolutionResult.Errors.Any()
+                        ? Result.Error(categoryResolutionResult.Errors.First())
+                        : Result.Error("Failed to resolve category");
                 }
 
-                // If simple ledger category title provided (no budget), try to find or create ledger category
-                if (categoryId == null && !string.IsNullOrWhiteSpace(request.CategoryTitle))
-                {
-                    var existingCategory = await _categoryQueryService.GetCategoryAsync(request.CategoryTitle);
-                    if (existingCategory is not null)
-                    {
-                        categoryId = existingCategory.Id;
-                    }
-                    else
-                    {
-                        var createLedgerCategoryReq = new DTOs.Requests.Categories.CreateLedgerCategoryRequest(existingLedgerId, request.CategoryTitle, request.TransactionTypeId);
-                        var createCatRes = await _categoryService.CreateLedgerCategoryAsync(createLedgerCategoryReq);
-                        if (createCatRes.Status != Ardalis.Result.ResultStatus.Ok)
-                        {
-                            await _unitOfWork.RollbackTransactionAsync();
-                            return Result.Error("Failed to create ledger category");
-                        }
-                        categoryId = createCatRes.Value;
-                    }
-                }
-
-                // If still null but budgetId+budgetCategoryId provided, derive categoryId from budgetCategory
-                if (categoryId == null && request.BudgetId is not null && request.BudgetCategoryId is not null)
-                {
-                    var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(existingLedgerId, request.BudgetId.Value, request.BudgetCategoryId.Value);
-                    if (budgetCategoryDto is null)
-                    {
-                        return Result.NotFound("Budget Category not found");
-                    }
-                    categoryId = budgetCategoryDto.CategoryId;
-                }
-                // --- END NEW LOGIC ---
+                var (categoryId, updatedRequest) = categoryResolutionResult.Value;
+                request = updatedRequest;
 
                 // transaction
                 var newTransaction = new Transaction(request.AccountId, existingLedgerId, request.TransactionTypeId,
@@ -280,6 +159,131 @@ namespace FamilyBudgeting.Domain.Services
                 await _unitOfWork.RollbackTransactionAsync();
                 throw;
             }
+        }
+
+        private async Task<Result<Guid>> ResolveLedgerForCreateAsync(Guid userId, Guid? ledgerId)
+        {
+            if (ledgerId.HasValue)
+            {
+                return Result.Success(ledgerId.Value);
+            }
+
+            var firstLedger = await _ledgerQueryService.GetUserLedgerFirstAsync(userId);
+            if (firstLedger is null)
+            {
+                return Result.NotFound("No ledgers found for the user");
+            }
+
+            return Result.Success(firstLedger.Id);
+        }
+
+        private async Task<Result> EnsureLedgerAccessAsync(Guid userId, Guid ledgerId)
+        {
+            bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(userId, ledgerId);
+            if (!hasAccess)
+            {
+                return Result.Forbidden("User does not have access to this ledger");
+            }
+
+            return Result.Success();
+        }
+
+        private async Task<Result<(Guid? CategoryId, CreateTransactionRequest Request)>> ResolveCategoryForCreateAsync(
+            Guid userId,
+            Guid existingLedgerId,
+            CreateTransactionRequest request)
+        {
+            Guid? categoryId = request.CategoryId;
+
+            if (categoryId == null && !string.IsNullOrWhiteSpace(request.BudgetCategoryTitle) && request.BudgetId is not null)
+            {
+                var existingBudgetCategories = await _budgetCategoryQueryService.GetBudgetCategoriesDetailedAsync(existingLedgerId, request.BudgetId.Value);
+                var matched = existingBudgetCategories.FirstOrDefault(bc => bc.CategoryName.Equals(request.BudgetCategoryTitle, StringComparison.OrdinalIgnoreCase));
+                if (matched is not null)
+                {
+                    categoryId = matched.CategoryId;
+                    request = request with { BudgetCategoryId = matched.Id };
+                }
+                else
+                {
+                    var budget = await _budgetQueryService.GetBudgetAsync(request.BudgetId.Value);
+                    if (budget is null)
+                    {
+                        return Result.NotFound("Budget not found");
+                    }
+
+                    var currencies = await _currencyQueryService.GetCurrenciesFromLedgerAsync();
+                    var currency = currencies.FirstOrDefault();
+                    if (currency is null)
+                    {
+                        return Result.NotFound("Currency not found for creating budget category");
+                    }
+
+                    if (await _transactionTypeQueryService.GetTransactionTypeAsync(request.TransactionTypeId) is null)
+                    {
+                        return Result.NotFound("Transaction type not found");
+                    }
+
+                    var existingCategory = await _categoryQueryService.GetCategoryAsync(request.BudgetCategoryTitle);
+                    if (existingCategory is null)
+                    {
+                        var createLedgerCategoryReq = new CreateLedgerCategoryRequest(existingLedgerId, request.BudgetCategoryTitle, request.TransactionTypeId);
+                        var createCatRes = await _categoryService.CreateLedgerCategoryAsync(createLedgerCategoryReq);
+                        if (createCatRes.Status != Ardalis.Result.ResultStatus.Ok)
+                        {
+                            return Result.Error("Failed to create base category for budget category");
+                        }
+                    }
+
+                    var createBudgetCategoryReq = new CreateBudgetCategoryRequest(request.BudgetCategoryTitle, request.BudgetId.Value, currency.Id, 0, request.TransactionTypeId);
+                    var createBudgetCatRes = await _budgetCategoryService.CreateBudgetCategoryAsync(userId, createBudgetCategoryReq);
+                    if (createBudgetCatRes.Status != Ardalis.Result.ResultStatus.Ok)
+                    {
+                        return Result.Error("Failed to create budget category");
+                    }
+
+                    var createdBudgetCategories = await _budgetCategoryQueryService.GetBudgetCategoriesDetailedAsync(existingLedgerId, request.BudgetId.Value);
+                    var created = createdBudgetCategories.FirstOrDefault(bc => bc.CategoryName.Equals(request.BudgetCategoryTitle, StringComparison.OrdinalIgnoreCase));
+                    if (created is null)
+                    {
+                        return Result.Error("Failed to retrieve created budget category");
+                    }
+
+                    categoryId = created.CategoryId;
+                    request = request with { BudgetCategoryId = created.Id };
+                }
+            }
+
+            if (categoryId == null && !string.IsNullOrWhiteSpace(request.CategoryTitle))
+            {
+                var existingCategory = await _categoryQueryService.GetCategoryAsync(request.CategoryTitle);
+                if (existingCategory is not null)
+                {
+                    categoryId = existingCategory.Id;
+                }
+                else
+                {
+                    var createLedgerCategoryReq = new CreateLedgerCategoryRequest(existingLedgerId, request.CategoryTitle, request.TransactionTypeId);
+                    var createCatRes = await _categoryService.CreateLedgerCategoryAsync(createLedgerCategoryReq);
+                    if (createCatRes.Status != Ardalis.Result.ResultStatus.Ok)
+                    {
+                        return Result.Error("Failed to create ledger category");
+                    }
+                    categoryId = createCatRes.Value;
+                }
+            }
+
+            if (categoryId == null && request.BudgetId is not null && request.BudgetCategoryId is not null)
+            {
+                var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(existingLedgerId, request.BudgetId.Value, request.BudgetCategoryId.Value);
+                if (budgetCategoryDto is null)
+                {
+                    return Result.NotFound("Budget Category not found");
+                }
+                categoryId = budgetCategoryDto.CategoryId;
+            }
+
+            return Result.Success((categoryId, request));
         }
 
         public async Task<Result<bool>> UpdateTransactionAsync(Guid userId, UpdateTransactionRequest request)
