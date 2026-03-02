@@ -37,6 +37,7 @@ namespace FamilyBudgeting.Domain.Services
         private readonly ITransactionCreateHandler _transactionCreateHandler;
         private readonly ITransactionUpdateHandler _transactionUpdateHandler;
         private readonly ITransactionDeleteHandler _transactionDeleteHandler;
+        private readonly ITransactionTransferHandler _transactionTransferHandler;
 
         public TransactionService(ITransactionRepository transactionRepository, ITransactionQueryService transactionQueryService,
             IUserLedgerQueryService userLedgerQueryService, ILedgerQueryService ledgerQueryService,
@@ -45,7 +46,8 @@ namespace FamilyBudgeting.Domain.Services
             IBudgetCategoryQueryService budgetCategoryQueryService, IUnitOfWork unitOfWork, IAccountRepository accountRepository,
             IBudgetCategoryRepository budgetCategoryRepository, ILogger<TransactionService> logger, IAccountService accountService, 
             ICategoryService categoryService, IAccountTypeService accountTypeService, IBudgetCategoryService budgetCategoryService,
-            ITransactionCreateHandler transactionCreateHandler, ITransactionUpdateHandler transactionUpdateHandler, ITransactionDeleteHandler transactionDeleteHandler)
+            ITransactionCreateHandler transactionCreateHandler, ITransactionUpdateHandler transactionUpdateHandler, ITransactionDeleteHandler transactionDeleteHandler,
+            ITransactionTransferHandler transactionTransferHandler)
         {
             _transactionRepository = transactionRepository;
             _transactionQueryService = transactionQueryService;
@@ -68,6 +70,7 @@ namespace FamilyBudgeting.Domain.Services
             _transactionCreateHandler = transactionCreateHandler;
             _transactionUpdateHandler = transactionUpdateHandler;
             _transactionDeleteHandler = transactionDeleteHandler;
+            _transactionTransferHandler = transactionTransferHandler;
         }
 
         public async Task<Result<Guid>> CreateTransactionAsync(Guid userId, CreateTransactionRequest request)
@@ -200,89 +203,7 @@ namespace FamilyBudgeting.Domain.Services
 
         public async Task<Result<Guid>> TransferAsync(Guid userId, TransferTransactionRequest request)
         {
-            try
-            {
-                await _unitOfWork.BeginTransactionAsync();
-
-                // Determine ledger
-                Guid existingLedgerId = request.LedgerId ?? (await _ledgerQueryService.GetUserLedgerFirstAsync(userId))?.Id ?? Guid.Empty;
-                if (existingLedgerId == Guid.Empty)
-                    return Result.NotFound("No ledgers found for the user");
-
-                // Access check
-                bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(userId, existingLedgerId);
-                if (!hasAccess)
-                    return Result.Forbidden("User does not have access to this ledger");
-
-                // Source account
-                var sourceAccountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(request.SourceAccountId)
-                    .ForUpdate()
-                    .QueryFirstOrDefaultAsync();
-
-                if (sourceAccountDto is null || sourceAccountDto.UserId != userId)
-                    return Result.NotFound("Source account not found or does not belong to the user");
-
-                // Destination account
-                var destAccountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(request.DestinationAccountId)
-                    .ForUpdate()
-                    .QueryFirstOrDefaultAsync();
-
-                if (destAccountDto is null)
-                    return Result.NotFound("Destination account not found");
-
-                // Currency check
-                if (sourceAccountDto.CurrencyId != destAccountDto.CurrencyId)
-                    return Result.Error("Currency mismatch between source and destination accounts");
-
-                int centsAmount = MoneyConverter.ConvertToCents(request.Amount, sourceAccountDto.CurrencyFractionalUnitFactor);
-                if (sourceAccountDto.AccountBalance < centsAmount)
-                    return Result.Error("Insufficient funds in source account");
-
-                // Get transfer type id
-                var transferTypeId = TransactionTypes.TransferId;
-                if (transferTypeId == Guid.Empty)
-                {
-                    var types = await _transactionTypeQueryService.GetTransactionsTypesAsync();
-                    TransactionTypes.Initialize(types);
-                    transferTypeId = TransactionTypes.TransferId;
-                }
-
-                // Create withdrawal transaction (source)
-                var transfer = new Transaction(
-                    request.SourceAccountId,
-                    existingLedgerId,
-                    transferTypeId,
-                    null,
-                    sourceAccountDto.CurrencyId,
-                    centsAmount,
-                    request.Date,
-                    request.Note,
-                    request.BudgetId,
-                    userId,
-                    request.BudgetCategoryId
-                );
-                Guid transferId = await _transactionRepository.CreateTransactionAsync(transfer);
-
-                // Update source account
-                var sourceAccount = new Account(sourceAccountDto.UserId, sourceAccountDto.AccountTypeId, sourceAccountDto.AccountTitle, sourceAccountDto.AccountBalance, sourceAccountDto.CurrencyId);
-                sourceAccount.AddTransaction(-centsAmount);
-                bool sourceResult = await _accountRepository.UpdateAccountAsync(sourceAccountDto.AccountId, sourceAccount);
-
-                // Update destination account
-                var destAccount = new Account(destAccountDto.UserId, destAccountDto.AccountTypeId, destAccountDto.AccountTitle, destAccountDto.AccountBalance, destAccountDto.CurrencyId);
-                destAccount.AddTransaction(centsAmount);
-                bool destResult = await _accountRepository.UpdateAccountAsync(destAccountDto.AccountId, destAccount);
-
-                await _unitOfWork.CommitTransactionAsync();
-
-                // Return withdrawal transaction id as the main reference
-                return Result.Success(transferId);
-            }
-            catch (Exception ex)
-            {
-                await _unitOfWork.RollbackTransactionAsync();
-                return Result.Error($"Transfer failed: {ex.Message}");
-            }
+            return await _transactionTransferHandler.HandleAsync(userId, request);
         }
 
         public async Task<Result<int>> ImportTransactionsAsync(Guid userId, Guid ledgerId, Microsoft.AspNetCore.Http.IFormFile file)
