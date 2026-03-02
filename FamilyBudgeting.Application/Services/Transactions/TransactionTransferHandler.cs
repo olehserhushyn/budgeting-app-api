@@ -147,7 +147,7 @@ namespace FamilyBudgeting.Domain.Services
                 await _unitOfWork.RollbackTransactionAsync();
                 if (!string.IsNullOrWhiteSpace(errorLogMessage))
                     _logger.LogError(ex, errorLogMessage);
-                return Result.Error(ex.Message);
+                return Result<T>.Error(ex.Message);
             }
         }
     }
