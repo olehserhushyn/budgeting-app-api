@@ -90,6 +90,8 @@ namespace FamilyBudgeting.API.Configuration
             services.AddScoped<ITransactionDeleteHandler, TransactionDeleteHandler>();
             services.AddScoped<ITransactionTransferHandler, TransactionTransferHandler>();
             services.AddScoped<ITransactionImportHandler, TransactionImportHandler>();
+            services.AddScoped<ITransactionListQueryHandler, TransactionListQueryHandler>();
+            services.AddScoped<ITransactionPageDataQueryHandler, TransactionPageDataQueryHandler>();
             services.AddScoped<ICategoryService, CategoryService>();
             services.AddScoped<ISubcategoryService, SubcategoryService>();
             services.AddScoped<IBudgetService, BudgetService>();
