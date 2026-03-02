@@ -35,6 +35,8 @@ namespace FamilyBudgeting.Domain.Services
         private readonly IAccountTypeService _accountTypeService;
         private readonly IBudgetCategoryService _budgetCategoryService;
         private readonly ITransactionCreateHandler _transactionCreateHandler;
+        private readonly ITransactionUpdateHandler _transactionUpdateHandler;
+        private readonly ITransactionDeleteHandler _transactionDeleteHandler;
 
         public TransactionService(ITransactionRepository transactionRepository, ITransactionQueryService transactionQueryService,
             IUserLedgerQueryService userLedgerQueryService, ILedgerQueryService ledgerQueryService,
@@ -43,7 +45,7 @@ namespace FamilyBudgeting.Domain.Services
             IBudgetCategoryQueryService budgetCategoryQueryService, IUnitOfWork unitOfWork, IAccountRepository accountRepository,
             IBudgetCategoryRepository budgetCategoryRepository, ILogger<TransactionService> logger, IAccountService accountService, 
             ICategoryService categoryService, IAccountTypeService accountTypeService, IBudgetCategoryService budgetCategoryService,
-            ITransactionCreateHandler transactionCreateHandler)
+            ITransactionCreateHandler transactionCreateHandler, ITransactionUpdateHandler transactionUpdateHandler, ITransactionDeleteHandler transactionDeleteHandler)
         {
             _transactionRepository = transactionRepository;
             _transactionQueryService = transactionQueryService;
@@ -64,6 +66,8 @@ namespace FamilyBudgeting.Domain.Services
             _accountTypeService = accountTypeService;
             _budgetCategoryService = budgetCategoryService;
             _transactionCreateHandler = transactionCreateHandler;
+            _transactionUpdateHandler = transactionUpdateHandler;
+            _transactionDeleteHandler = transactionDeleteHandler;
         }
 
         public async Task<Result<Guid>> CreateTransactionAsync(Guid userId, CreateTransactionRequest request)
@@ -73,176 +77,12 @@ namespace FamilyBudgeting.Domain.Services
 
         public async Task<Result<bool>> UpdateTransactionAsync(Guid userId, UpdateTransactionRequest request)
         {
-            return await ExecuteInTransactionAsync(
-                () => UpdateTransactionCoreAsync(userId, request),
-                "Error updating transaction");
-        }
-
-        private async Task<Result<bool>> UpdateTransactionCoreAsync(Guid userId, UpdateTransactionRequest request)
-        {
-            // Get and lock transaction first
-            var existingTransaction = await _transactionQueryService.GetTransactionById(request.TransactionId)
-                .ForUpdate()
-                .QueryFirstOrDefaultAsync();
-
-            if (existingTransaction is null)
-            {
-                return Result.NotFound("Unable to update transaction. Transaction was not found.");
-            }
-
-            // Get and lock account (since we'll update it)
-            var accountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(request.AccountId)
-                .ForUpdate()
-                .QueryFirstOrDefaultAsync();
-
-            if (accountDto is null || accountDto.UserId != userId)
-            {
-                return Result.NotFound("Account not found or does not belong to the user");
-            }
-
-            // Rest of validation checks (non-locking)
-            var existingLedgerId = request.LedgerId ??
-                (await _ledgerQueryService.GetUserLedgerFirstAsync(userId))?.Id;
-
-            if (existingLedgerId == null)
-            {
-                return Result.NotFound("No ledgers found for the user");
-            }
-
-            bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(userId, existingLedgerId.Value);
-            if (!hasAccess)
-            {
-                return Result.Forbidden("User does not have access to this ledger");
-            }
-
-            // Transaction processing
-            int centsAmount = MoneyConverter.ConvertToCents(request.Amount, accountDto.CurrencyFractionalUnitFactor);
-            var transactionType = await _transactionTypeQueryService.GetTransactionTypeAsync(request.TransactionTypeId);
-            var existingTransactionType = await _transactionTypeQueryService.GetTransactionTypeAsync(existingTransaction.TransactionTypeId);
-
-            if (transactionType is null || existingTransactionType is null)
-            {
-                return Result.NotFound("Transaction type not found");
-            }
-
-            // Update transaction
-            var newTransaction = new Transaction(
-                request.AccountId, existingLedgerId.Value, request.TransactionTypeId,
-                request.CategoryId, accountDto.CurrencyId, centsAmount,
-                request.Date, request.Note, request.BudgetId, userId, request.BudgetCategoryId);
-
-            var tranResult = await _transactionRepository.UpdateTransactionAsync(request.TransactionId, newTransaction);
-            if (!tranResult)
-            {
-                return Result.Error("Unexpected error during updating transaction");
-            }
-
-            // Update budget category if needed
-            if (request.BudgetId is not null && request.BudgetCategoryId is not null)
-            {
-                var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(
-                    existingLedgerId.Value, request.BudgetId.Value, request.BudgetCategoryId.Value);
-
-                if (budgetCategoryDto is null)
-                {
-                    return Result.NotFound("Budget Category not found");
-                }
-
-                var budgetCategory = new BudgetCategory(
-                    request.BudgetId.Value, budgetCategoryDto.CategoryId,
-                    budgetCategoryDto.CurrencyId, budgetCategoryDto.PlannedAmount,
-                    budgetCategoryDto.CurrentAmount, budgetCategoryDto.InitialPlannedAmount);
-
-                budgetCategory.AddTransaction(
-                    TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title));
-
-                var budgetCategoryResult = await _budgetCategoryRepository.UpdateBudgetCategoryAsync(
-                    budgetCategoryDto.Id, budgetCategory);
-
-                if (!budgetCategoryResult)
-                {
-                    return Result.Error("Unexpected error during updating budget category");
-                }
-            }
-
-            // Update account balance
-            var account = new Account(
-                accountDto.UserId, accountDto.AccountTypeId,
-                accountDto.AccountTitle, accountDto.AccountBalance,
-                accountDto.CurrencyId);
-
-            account.UpdateTransaction(
-                TransactionHelper.AdjustCentsSign(existingTransaction.Amount, existingTransactionType.Title),
-                TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title));
-
-            bool accountResult = await _accountRepository.UpdateAccountAsync(accountDto.AccountId, account);
-
-            if (!accountResult)
-            {
-                return Result.Error("Unexpected error during updating account");
-            }
-
-            return Result.Success(true);
+            return await _transactionUpdateHandler.HandleAsync(userId, request);
         }
 
         public async Task<Result<bool>> DeleteTransactionAsync(Guid userId, DeleteTransactionRequest request)
         {
-            return await ExecuteInTransactionAsync(() => DeleteTransactionCoreAsync(userId, request));
-        }
-
-        private async Task<Result<bool>> DeleteTransactionCoreAsync(Guid userId, DeleteTransactionRequest request)
-        {
-            bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(userId, request.LedgerId);
-
-            if (!hasAccess)
-            {
-                return Result.Forbidden("User does not have access to this ledger");
-            }
-
-            var existingTransaction = await _transactionQueryService.GetTransactionById(request.TransactionId).QueryFirstOrDefaultAsync();
-
-            if (existingTransaction is null)
-            {
-                return Result.NotFound("Unable to update transaction. Transaction was not found.");
-            }
-
-            var accountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(existingTransaction.AccountId)
-                .ForUpdate()
-                .QueryFirstOrDefaultAsync();
-
-            if (accountDto is null || accountDto.UserId != userId)
-            {
-                return Result.NotFound("Account not found or does not belong to the user");
-            }
-
-            var existingTransactionType = await _transactionTypeQueryService.GetTransactionTypeAsync(existingTransaction.TransactionTypeId);
-
-            if (existingTransactionType is null)
-            {
-                return Result.NotFound("Transaction type not found");
-            }
-
-            var transaction = new Transaction(existingTransaction.AccountId, existingTransaction.LedgerId, existingTransaction.TransactionTypeId, existingTransaction.CategoryId,
-                existingTransaction.CurrencyId, existingTransaction.Amount, existingTransaction.Date, existingTransaction.Note, existingTransaction.BudgetId, existingTransaction.UserId, existingTransaction.BudgetCategoryId);
-
-            transaction.Delete();
-            var tranResult = await _transactionRepository.UpdateTransactionAsync(request.TransactionId, transaction);
-
-            if (!tranResult)
-            {
-                return Result.Error("Unexpected error during deleting transaction");
-            }
-
-            var account = new Account(accountDto.UserId, accountDto.AccountTypeId, accountDto.AccountTitle, accountDto.AccountBalance, accountDto.CurrencyId);
-            account.RemoveTransaction(existingTransactionType.Title == TransactionTypes.Expense ? existingTransaction.Amount * -1 : existingTransaction.Amount);
-
-            bool accountResult = await _accountRepository.UpdateAccountAsync(accountDto.AccountId, account);
-            if (!accountResult)
-            {
-                return Result.Error("Unexpected error during updating account");
-            }
-
-            return Result.Success(tranResult);
+            return await _transactionDeleteHandler.HandleAsync(userId, request);
         }
 
         public async Task<Result<PaginatedTransactionListResponse>> GetTransactionsFromLedgerAsync(GetTransactionsFromLedgerRequest request)
