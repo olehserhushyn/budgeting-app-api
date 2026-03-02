@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 
 namespace FamilyBudgeting.Domain.Services
 {
-    public class TransactionTransferHandler : ITransactionTransferHandler
+    public class TransactionTransferHandler : TransactionCommandHandlerBase, ITransactionTransferHandler
     {
         private readonly ILedgerQueryService _ledgerQueryService;
         private readonly IUserLedgerQueryService _userLedgerQueryService;
@@ -19,8 +19,6 @@ namespace FamilyBudgeting.Domain.Services
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
         private readonly ITransactionRepository _transactionRepository;
         private readonly IAccountRepository _accountRepository;
-        private readonly IUnitOfWork _unitOfWork;
-        private readonly ILogger<TransactionTransferHandler> _logger;
 
         public TransactionTransferHandler(
             ILedgerQueryService ledgerQueryService,
@@ -31,6 +29,7 @@ namespace FamilyBudgeting.Domain.Services
             IAccountRepository accountRepository,
             IUnitOfWork unitOfWork,
             ILogger<TransactionTransferHandler> logger)
+        : base(unitOfWork, logger)
         {
             _ledgerQueryService = ledgerQueryService;
             _userLedgerQueryService = userLedgerQueryService;
@@ -38,13 +37,11 @@ namespace FamilyBudgeting.Domain.Services
             _transactionTypeQueryService = transactionTypeQueryService;
             _transactionRepository = transactionRepository;
             _accountRepository = accountRepository;
-            _unitOfWork = unitOfWork;
-            _logger = logger;
         }
 
         public async Task<Result<Guid>> HandleAsync(Guid userId, TransferTransactionRequest request)
         {
-            return await ExecuteInTransactionAsync(async () =>
+            return await ExecuteInTransactionWithErrorAsync(async () =>
             {
                 Guid existingLedgerId = request.LedgerId ?? (await _ledgerQueryService.GetUserLedgerFirstAsync(userId))?.Id ?? Guid.Empty;
                 if (existingLedgerId == Guid.Empty)
@@ -130,25 +127,5 @@ namespace FamilyBudgeting.Domain.Services
             }, "Transfer failed");
         }
 
-        private async Task<Result<T>> ExecuteInTransactionAsync<T>(Func<Task<Result<T>>> operation, string? errorLogMessage = null)
-        {
-            await _unitOfWork.BeginTransactionAsync();
-            try
-            {
-                var result = await operation();
-                if (result.IsSuccess)
-                    await _unitOfWork.CommitTransactionAsync();
-                else
-                    await _unitOfWork.RollbackTransactionAsync();
-                return result;
-            }
-            catch (Exception ex)
-            {
-                await _unitOfWork.RollbackTransactionAsync();
-                if (!string.IsNullOrWhiteSpace(errorLogMessage))
-                    _logger.LogError(ex, errorLogMessage);
-                return Result<T>.Error(ex.Message);
-            }
-        }
     }
 }

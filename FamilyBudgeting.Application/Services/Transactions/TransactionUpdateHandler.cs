@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 
 namespace FamilyBudgeting.Domain.Services
 {
-    public class TransactionUpdateHandler : ITransactionUpdateHandler
+    public class TransactionUpdateHandler : TransactionCommandHandlerBase, ITransactionUpdateHandler
     {
         private readonly ITransactionQueryService _transactionQueryService;
         private readonly IAccountQueryService _accountQueryService;
@@ -22,8 +22,6 @@ namespace FamilyBudgeting.Domain.Services
         private readonly IBudgetCategoryQueryService _budgetCategoryQueryService;
         private readonly IBudgetCategoryRepository _budgetCategoryRepository;
         private readonly IAccountRepository _accountRepository;
-        private readonly IUnitOfWork _unitOfWork;
-        private readonly ILogger<TransactionUpdateHandler> _logger;
 
         public TransactionUpdateHandler(
             ITransactionQueryService transactionQueryService,
@@ -37,6 +35,7 @@ namespace FamilyBudgeting.Domain.Services
             IAccountRepository accountRepository,
             IUnitOfWork unitOfWork,
             ILogger<TransactionUpdateHandler> logger)
+        : base(unitOfWork, logger)
         {
             _transactionQueryService = transactionQueryService;
             _accountQueryService = accountQueryService;
@@ -47,8 +46,6 @@ namespace FamilyBudgeting.Domain.Services
             _budgetCategoryQueryService = budgetCategoryQueryService;
             _budgetCategoryRepository = budgetCategoryRepository;
             _accountRepository = accountRepository;
-            _unitOfWork = unitOfWork;
-            _logger = logger;
         }
 
         public async Task<Result<bool>> HandleAsync(Guid userId, UpdateTransactionRequest request)
@@ -148,25 +145,5 @@ namespace FamilyBudgeting.Domain.Services
             }, "Error updating transaction");
         }
 
-        private async Task<Result<T>> ExecuteInTransactionAsync<T>(Func<Task<Result<T>>> operation, string? errorLogMessage = null)
-        {
-            await _unitOfWork.BeginTransactionAsync();
-            try
-            {
-                var result = await operation();
-                if (result.IsSuccess)
-                    await _unitOfWork.CommitTransactionAsync();
-                else
-                    await _unitOfWork.RollbackTransactionAsync();
-                return result;
-            }
-            catch (Exception ex)
-            {
-                await _unitOfWork.RollbackTransactionAsync();
-                if (!string.IsNullOrWhiteSpace(errorLogMessage))
-                    _logger.LogError(ex, errorLogMessage);
-                throw;
-            }
-        }
     }
 }

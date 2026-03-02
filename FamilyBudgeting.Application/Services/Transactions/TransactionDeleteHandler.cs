@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace FamilyBudgeting.Domain.Services
 {
-    public class TransactionDeleteHandler : ITransactionDeleteHandler
+    public class TransactionDeleteHandler : TransactionCommandHandlerBase, ITransactionDeleteHandler
     {
         private readonly IUserLedgerQueryService _userLedgerQueryService;
         private readonly ITransactionQueryService _transactionQueryService;
@@ -18,8 +18,6 @@ namespace FamilyBudgeting.Domain.Services
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
         private readonly ITransactionRepository _transactionRepository;
         private readonly IAccountRepository _accountRepository;
-        private readonly IUnitOfWork _unitOfWork;
-        private readonly ILogger<TransactionDeleteHandler> _logger;
 
         public TransactionDeleteHandler(
             IUserLedgerQueryService userLedgerQueryService,
@@ -30,6 +28,7 @@ namespace FamilyBudgeting.Domain.Services
             IAccountRepository accountRepository,
             IUnitOfWork unitOfWork,
             ILogger<TransactionDeleteHandler> logger)
+        : base(unitOfWork, logger)
         {
             _userLedgerQueryService = userLedgerQueryService;
             _transactionQueryService = transactionQueryService;
@@ -37,8 +36,6 @@ namespace FamilyBudgeting.Domain.Services
             _transactionTypeQueryService = transactionTypeQueryService;
             _transactionRepository = transactionRepository;
             _accountRepository = accountRepository;
-            _unitOfWork = unitOfWork;
-            _logger = logger;
         }
 
         public async Task<Result<bool>> HandleAsync(Guid userId, DeleteTransactionRequest request)
@@ -95,24 +92,5 @@ namespace FamilyBudgeting.Domain.Services
             });
         }
 
-        private async Task<Result<T>> ExecuteInTransactionAsync<T>(Func<Task<Result<T>>> operation)
-        {
-            await _unitOfWork.BeginTransactionAsync();
-            try
-            {
-                var result = await operation();
-                if (result.IsSuccess)
-                    await _unitOfWork.CommitTransactionAsync();
-                else
-                    await _unitOfWork.RollbackTransactionAsync();
-                return result;
-            }
-            catch (Exception ex)
-            {
-                await _unitOfWork.RollbackTransactionAsync();
-                _logger.LogError(ex, "Error deleting transaction");
-                throw;
-            }
-        }
     }
 }
