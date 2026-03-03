@@ -3,7 +3,6 @@ using FamilyBudgeting.Domain.Core;
 using FamilyBudgeting.Domain.Data.Accounts;
 using FamilyBudgeting.Domain.Data.BudgetCategories;
 using FamilyBudgeting.Domain.Data.Transactions;
-using FamilyBudgeting.Domain.DTOs.Requests.Categories;
 using FamilyBudgeting.Domain.DTOs.Requests.Transactions;
 using FamilyBudgeting.Domain.Interfaces.Queries;
 using FamilyBudgeting.Domain.Services.Interfaces;
@@ -16,45 +15,33 @@ namespace FamilyBudgeting.Domain.Services
         private readonly ITransactionAccessPolicy _transactionAccessPolicy;
         private readonly IAccountQueryService _accountQueryService;
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
-        private readonly ICategoryQueryService _categoryQueryService;
-        private readonly ICurrencyQueryService _currencyQueryService;
-        private readonly IBudgetQueryService _budgetQueryService;
         private readonly IBudgetCategoryQueryService _budgetCategoryQueryService;
+        private readonly ITransactionCategoryResolutionPolicy _transactionCategoryResolutionPolicy;
         private readonly IAccountRepository _accountRepository;
         private readonly IBudgetCategoryRepository _budgetCategoryRepository;
         private readonly ITransactionRepository _transactionRepository;
-        private readonly ICategoryService _categoryService;
-        private readonly IBudgetCategoryService _budgetCategoryService;
 
         public TransactionCreateHandler(
             ITransactionAccessPolicy transactionAccessPolicy,
             IAccountQueryService accountQueryService,
             ITransactionTypeQueryService transactionTypeQueryService,
-            ICategoryQueryService categoryQueryService,
-            ICurrencyQueryService currencyQueryService,
-            IBudgetQueryService budgetQueryService,
             IBudgetCategoryQueryService budgetCategoryQueryService,
+            ITransactionCategoryResolutionPolicy transactionCategoryResolutionPolicy,
             IUnitOfWork unitOfWork,
             Microsoft.Extensions.Logging.ILogger<TransactionCreateHandler> logger,
             IAccountRepository accountRepository,
             IBudgetCategoryRepository budgetCategoryRepository,
-            ITransactionRepository transactionRepository,
-            ICategoryService categoryService,
-            IBudgetCategoryService budgetCategoryService)
+            ITransactionRepository transactionRepository)
         : base(unitOfWork, logger)
         {
             _transactionAccessPolicy = transactionAccessPolicy;
             _accountQueryService = accountQueryService;
             _transactionTypeQueryService = transactionTypeQueryService;
-            _categoryQueryService = categoryQueryService;
-            _currencyQueryService = currencyQueryService;
-            _budgetQueryService = budgetQueryService;
             _budgetCategoryQueryService = budgetCategoryQueryService;
+            _transactionCategoryResolutionPolicy = transactionCategoryResolutionPolicy;
             _accountRepository = accountRepository;
             _budgetCategoryRepository = budgetCategoryRepository;
             _transactionRepository = transactionRepository;
-            _categoryService = categoryService;
-            _budgetCategoryService = budgetCategoryService;
         }
 
         public async Task<Result<Guid>> HandleAsync(Guid userId, CreateTransactionRequest request)
@@ -93,7 +80,7 @@ namespace FamilyBudgeting.Domain.Services
 
                 int centsAmountWithSign = TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title);
 
-                var categoryResolutionResult = await ResolveCategoryForCreateAsync(userId, existingLedgerId, request);
+                var categoryResolutionResult = await _transactionCategoryResolutionPolicy.ResolveForCreateAsync(userId, existingLedgerId, request);
                 if (!categoryResolutionResult.IsSuccess)
                 {
                     return categoryResolutionResult.Status switch

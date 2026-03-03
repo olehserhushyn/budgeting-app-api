@@ -19,6 +19,7 @@ namespace FamilyBudgeting.Domain.Services
         public static IServiceCollection AddTransactionPolicies(this IServiceCollection services)
         {
             services.AddScoped<ITransactionAccessPolicy, TransactionAccessPolicy>();
+            services.AddScoped<ITransactionCategoryResolutionPolicy, TransactionCategoryResolutionPolicy>();
             return services;
         }
 
