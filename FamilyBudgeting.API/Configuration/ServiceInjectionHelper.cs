@@ -84,14 +84,7 @@ namespace FamilyBudgeting.API.Configuration
             services.AddScoped<IAccountService, AccountService>();
             services.AddScoped<ILedgerService, LedgerService>();
             services.AddScoped<IUserLedgerService, UserLedgerService>();
-            services.AddScoped<ITransactionService, TransactionService>();
-            services.AddScoped<ITransactionCreateHandler, TransactionCreateHandler>();
-            services.AddScoped<ITransactionUpdateHandler, TransactionUpdateHandler>();
-            services.AddScoped<ITransactionDeleteHandler, TransactionDeleteHandler>();
-            services.AddScoped<ITransactionTransferHandler, TransactionTransferHandler>();
-            services.AddScoped<ITransactionImportHandler, TransactionImportHandler>();
-            services.AddScoped<ITransactionListQueryHandler, TransactionListQueryHandler>();
-            services.AddScoped<ITransactionPageDataQueryHandler, TransactionPageDataQueryHandler>();
+            services.AddTransactionModule();
             services.AddScoped<ICategoryService, CategoryService>();
             services.AddScoped<ISubcategoryService, SubcategoryService>();
             services.AddScoped<IBudgetService, BudgetService>();
