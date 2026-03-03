@@ -13,8 +13,7 @@ namespace FamilyBudgeting.Domain.Services
 {
     public class TransactionCreateHandler : TransactionCommandHandlerBase, ITransactionCreateHandler
     {
-        private readonly IUserLedgerQueryService _userLedgerQueryService;
-        private readonly ILedgerQueryService _ledgerQueryService;
+        private readonly ITransactionAccessPolicy _transactionAccessPolicy;
         private readonly IAccountQueryService _accountQueryService;
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
         private readonly ICategoryQueryService _categoryQueryService;
@@ -28,8 +27,7 @@ namespace FamilyBudgeting.Domain.Services
         private readonly IBudgetCategoryService _budgetCategoryService;
 
         public TransactionCreateHandler(
-            IUserLedgerQueryService userLedgerQueryService,
-            ILedgerQueryService ledgerQueryService,
+            ITransactionAccessPolicy transactionAccessPolicy,
             IAccountQueryService accountQueryService,
             ITransactionTypeQueryService transactionTypeQueryService,
             ICategoryQueryService categoryQueryService,
@@ -45,8 +43,7 @@ namespace FamilyBudgeting.Domain.Services
             IBudgetCategoryService budgetCategoryService)
         : base(unitOfWork, logger)
         {
-            _userLedgerQueryService = userLedgerQueryService;
-            _ledgerQueryService = ledgerQueryService;
+            _transactionAccessPolicy = transactionAccessPolicy;
             _accountQueryService = accountQueryService;
             _transactionTypeQueryService = transactionTypeQueryService;
             _categoryQueryService = categoryQueryService;
@@ -64,14 +61,14 @@ namespace FamilyBudgeting.Domain.Services
         {
             return await ExecuteInTransactionAsync(async () =>
             {
-                var ledgerResult = await ResolveLedgerForCreateAsync(userId, request.LedgerId);
+                var ledgerResult = await _transactionAccessPolicy.ResolveLedgerAsync(userId, request.LedgerId);
                 if (!ledgerResult.IsSuccess)
                 {
                     return Result.NotFound(ledgerResult.Errors.FirstOrDefault() ?? "No ledgers found for the user");
                 }
                 Guid existingLedgerId = ledgerResult.Value;
 
-                var accessResult = await EnsureLedgerAccessAsync(userId, existingLedgerId);
+                var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(userId, existingLedgerId);
                 if (!accessResult.IsSuccess)
                 {
                     return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");

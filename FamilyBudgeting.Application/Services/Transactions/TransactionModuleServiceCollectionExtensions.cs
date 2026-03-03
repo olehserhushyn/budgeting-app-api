@@ -8,6 +8,7 @@ namespace FamilyBudgeting.Domain.Services
         public static IServiceCollection AddTransactionModule(this IServiceCollection services)
         {
             services.AddScoped<ITransactionService, TransactionService>();
+            services.AddScoped<ITransactionAccessPolicy, TransactionAccessPolicy>();
             services.AddScoped<ITransactionCreateHandler, TransactionCreateHandler>();
             services.AddScoped<ITransactionUpdateHandler, TransactionUpdateHandler>();
             services.AddScoped<ITransactionDeleteHandler, TransactionDeleteHandler>();

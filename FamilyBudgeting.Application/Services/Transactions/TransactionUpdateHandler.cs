@@ -15,8 +15,7 @@ namespace FamilyBudgeting.Domain.Services
     {
         private readonly ITransactionQueryService _transactionQueryService;
         private readonly IAccountQueryService _accountQueryService;
-        private readonly ILedgerQueryService _ledgerQueryService;
-        private readonly IUserLedgerQueryService _userLedgerQueryService;
+        private readonly ITransactionAccessPolicy _transactionAccessPolicy;
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
         private readonly ITransactionRepository _transactionRepository;
         private readonly IBudgetCategoryQueryService _budgetCategoryQueryService;
@@ -26,8 +25,7 @@ namespace FamilyBudgeting.Domain.Services
         public TransactionUpdateHandler(
             ITransactionQueryService transactionQueryService,
             IAccountQueryService accountQueryService,
-            ILedgerQueryService ledgerQueryService,
-            IUserLedgerQueryService userLedgerQueryService,
+            ITransactionAccessPolicy transactionAccessPolicy,
             ITransactionTypeQueryService transactionTypeQueryService,
             ITransactionRepository transactionRepository,
             IBudgetCategoryQueryService budgetCategoryQueryService,
@@ -39,8 +37,7 @@ namespace FamilyBudgeting.Domain.Services
         {
             _transactionQueryService = transactionQueryService;
             _accountQueryService = accountQueryService;
-            _ledgerQueryService = ledgerQueryService;
-            _userLedgerQueryService = userLedgerQueryService;
+            _transactionAccessPolicy = transactionAccessPolicy;
             _transactionTypeQueryService = transactionTypeQueryService;
             _transactionRepository = transactionRepository;
             _budgetCategoryQueryService = budgetCategoryQueryService;
@@ -70,16 +67,18 @@ namespace FamilyBudgeting.Domain.Services
                     return Result.NotFound("Account not found or does not belong to the user");
                 }
 
-                var existingLedgerId = request.LedgerId ?? (await _ledgerQueryService.GetUserLedgerFirstAsync(userId))?.Id;
-                if (existingLedgerId == null)
+                var ledgerResult = await _transactionAccessPolicy.ResolveLedgerAsync(userId, request.LedgerId);
+                if (!ledgerResult.IsSuccess)
                 {
-                    return Result.NotFound("No ledgers found for the user");
+                    return Result.NotFound(ledgerResult.Errors.FirstOrDefault() ?? "No ledgers found for the user");
                 }
 
-                bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(userId, existingLedgerId.Value);
-                if (!hasAccess)
+                var existingLedgerId = ledgerResult.Value;
+
+                var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(userId, existingLedgerId);
+                if (!accessResult.IsSuccess)
                 {
-                    return Result.Forbidden("User does not have access to this ledger");
+                    return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
                 }
 
                 int centsAmount = MoneyConverter.ConvertToCents(request.Amount, accountDto.CurrencyFractionalUnitFactor);
@@ -92,7 +91,7 @@ namespace FamilyBudgeting.Domain.Services
                 }
 
                 var newTransaction = new Transaction(
-                    request.AccountId, existingLedgerId.Value, request.TransactionTypeId,
+                    request.AccountId, existingLedgerId, request.TransactionTypeId,
                     request.CategoryId, accountDto.CurrencyId, centsAmount,
                     request.Date, request.Note, request.BudgetId, userId, request.BudgetCategoryId);
 
@@ -105,7 +104,7 @@ namespace FamilyBudgeting.Domain.Services
                 if (request.BudgetId is not null && request.BudgetCategoryId is not null)
                 {
                     var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(
-                        existingLedgerId.Value, request.BudgetId.Value, request.BudgetCategoryId.Value);
+                        existingLedgerId, request.BudgetId.Value, request.BudgetCategoryId.Value);
 
                     if (budgetCategoryDto is null)
                     {
