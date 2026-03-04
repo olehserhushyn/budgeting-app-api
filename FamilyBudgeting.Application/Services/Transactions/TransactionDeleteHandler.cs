@@ -12,7 +12,7 @@ namespace FamilyBudgeting.Domain.Services
 {
     public class TransactionDeleteHandler : TransactionCommandHandlerBase, ITransactionDeleteHandler
     {
-        private readonly IUserLedgerQueryService _userLedgerQueryService;
+        private readonly ITransactionAccessPolicy _transactionAccessPolicy;
         private readonly ITransactionQueryService _transactionQueryService;
         private readonly IAccountQueryService _accountQueryService;
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
@@ -20,7 +20,7 @@ namespace FamilyBudgeting.Domain.Services
         private readonly IAccountRepository _accountRepository;
 
         public TransactionDeleteHandler(
-            IUserLedgerQueryService userLedgerQueryService,
+            ITransactionAccessPolicy transactionAccessPolicy,
             ITransactionQueryService transactionQueryService,
             IAccountQueryService accountQueryService,
             ITransactionTypeQueryService transactionTypeQueryService,
@@ -30,7 +30,7 @@ namespace FamilyBudgeting.Domain.Services
             ILogger<TransactionDeleteHandler> logger)
         : base(unitOfWork, logger)
         {
-            _userLedgerQueryService = userLedgerQueryService;
+            _transactionAccessPolicy = transactionAccessPolicy;
             _transactionQueryService = transactionQueryService;
             _accountQueryService = accountQueryService;
             _transactionTypeQueryService = transactionTypeQueryService;
@@ -42,10 +42,10 @@ namespace FamilyBudgeting.Domain.Services
         {
             return await ExecuteInTransactionAsync(async () =>
             {
-                bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(userId, request.LedgerId);
-                if (!hasAccess)
+                var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(userId, request.LedgerId);
+                if (!accessResult.IsSuccess)
                 {
-                    return Result.Forbidden("User does not have access to this ledger");
+                    return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
                 }
 
                 var existingTransaction = await _transactionQueryService.GetTransactionById(request.TransactionId).QueryFirstOrDefaultAsync();

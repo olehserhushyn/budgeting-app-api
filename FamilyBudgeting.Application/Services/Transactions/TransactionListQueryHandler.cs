@@ -9,24 +9,24 @@ namespace FamilyBudgeting.Domain.Services
     public class TransactionListQueryHandler : ITransactionListQueryHandler
     {
         private readonly ITransactionQueryService _transactionQueryService;
-        private readonly IUserLedgerQueryService _userLedgerQueryService;
+        private readonly ITransactionAccessPolicy _transactionAccessPolicy;
 
         public TransactionListQueryHandler(
             ITransactionQueryService transactionQueryService,
-            IUserLedgerQueryService userLedgerQueryService)
+            ITransactionAccessPolicy transactionAccessPolicy)
         {
             _transactionQueryService = transactionQueryService;
-            _userLedgerQueryService = userLedgerQueryService;
+            _transactionAccessPolicy = transactionAccessPolicy;
         }
 
         public async Task<Result<PaginatedTransactionListResponse>> HandleAsync(GetTransactionsFromLedgerRequest request)
         {
             if (request.LedgerId.HasValue)
             {
-                bool hasAccess = await _userLedgerQueryService.CheckUserLedgerAccessAsync(request.UserId, request.LedgerId.Value);
-                if (!hasAccess)
+                var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(request.UserId, request.LedgerId.Value);
+                if (!accessResult.IsSuccess)
                 {
-                    return Result.Forbidden("User does not have access to this ledger");
+                    return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
                 }
             }
 
