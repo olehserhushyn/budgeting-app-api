@@ -30,8 +30,9 @@ namespace FamilyBudgeting.Domain.Services
             catch (Exception ex)
             {
                 await _unitOfWork.RollbackTransactionAsync();
-                if (!string.IsNullOrWhiteSpace(errorLogMessage))
-                    _logger.LogError(ex, errorLogMessage);
+                _logger.LogError(ex, string.IsNullOrWhiteSpace(errorLogMessage)
+                    ? "Unhandled exception in transactional command handler"
+                    : errorLogMessage);
                 throw;
             }
         }

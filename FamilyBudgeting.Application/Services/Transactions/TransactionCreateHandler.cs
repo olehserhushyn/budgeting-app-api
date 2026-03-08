@@ -129,7 +129,7 @@ namespace FamilyBudgeting.Domain.Services
                 }
 
                 return Result.Success(trId);
-            });
+            }, "Error creating transaction");
         }
 
     }

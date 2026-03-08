@@ -100,7 +100,7 @@ namespace FamilyBudgeting.Domain.Services
                 }
 
                 return Result.Success(tranResult);
-            });
+            }, "Error deleting transaction");
         }
 
     }
