@@ -20,6 +20,7 @@ namespace FamilyBudgeting.Domain.Services
         {
             services.AddScoped<ITransactionAccessPolicy, TransactionAccessPolicy>();
             services.AddScoped<ITransactionCategoryResolutionPolicy, TransactionCategoryResolutionPolicy>();
+            services.AddScoped<ITransactionPostingPolicy, TransactionPostingPolicy>();
             return services;
         }
 
