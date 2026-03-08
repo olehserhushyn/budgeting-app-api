@@ -42,7 +42,9 @@ namespace FamilyBudgeting.Domain.Services
         {
             return await ExecuteInTransactionAsync(async () =>
             {
-                var existingTransaction = await _transactionQueryService.GetTransactionById(request.TransactionId).QueryFirstOrDefaultAsync();
+                var existingTransaction = await _transactionQueryService.GetTransactionById(request.TransactionId)
+                    .ForUpdate()
+                    .QueryFirstOrDefaultAsync();
                 if (existingTransaction is null)
                 {
                     return Result.NotFound("Unable to delete transaction. Transaction was not found.");
@@ -56,7 +58,11 @@ namespace FamilyBudgeting.Domain.Services
 
                 if (request.LedgerId != existingTransaction.LedgerId)
                 {
-                    return Result.Forbidden("Ledger mismatch for transaction delete request");
+                    return Result.Invalid(new ValidationError
+                    {
+                        Identifier = nameof(request.LedgerId),
+                        ErrorMessage = "Ledger mismatch for transaction delete request"
+                    });
                 }
 
                 var accountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(existingTransaction.AccountId)
