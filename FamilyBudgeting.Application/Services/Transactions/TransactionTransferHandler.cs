@@ -54,6 +54,15 @@ namespace FamilyBudgeting.Domain.Services
                     return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
                 }
 
+                if (request.SourceAccountId == request.DestinationAccountId)
+                {
+                    return Result.Invalid(new ValidationError
+                    {
+                        Identifier = nameof(request.DestinationAccountId),
+                        ErrorMessage = "Source and destination accounts must be different"
+                    });
+                }
+
                 var sourceAccountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(request.SourceAccountId)
                     .ForUpdate()
                     .QueryFirstOrDefaultAsync();
@@ -67,9 +76,9 @@ namespace FamilyBudgeting.Domain.Services
                     .ForUpdate()
                     .QueryFirstOrDefaultAsync();
 
-                if (destAccountDto is null)
+                if (destAccountDto is null || destAccountDto.UserId != userId)
                 {
-                    return Result.NotFound("Destination account not found");
+                    return Result.NotFound("Destination account not found or does not belong to the user");
                 }
 
                 if (sourceAccountDto.CurrencyId != destAccountDto.CurrencyId)
