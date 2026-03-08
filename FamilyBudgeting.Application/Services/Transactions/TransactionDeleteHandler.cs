@@ -42,16 +42,21 @@ namespace FamilyBudgeting.Domain.Services
         {
             return await ExecuteInTransactionAsync(async () =>
             {
-                var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(userId, request.LedgerId);
+                var existingTransaction = await _transactionQueryService.GetTransactionById(request.TransactionId).QueryFirstOrDefaultAsync();
+                if (existingTransaction is null)
+                {
+                    return Result.NotFound("Unable to delete transaction. Transaction was not found.");
+                }
+
+                var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(userId, existingTransaction.LedgerId);
                 if (!accessResult.IsSuccess)
                 {
                     return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
                 }
 
-                var existingTransaction = await _transactionQueryService.GetTransactionById(request.TransactionId).QueryFirstOrDefaultAsync();
-                if (existingTransaction is null)
+                if (request.LedgerId != existingTransaction.LedgerId)
                 {
-                    return Result.NotFound("Unable to update transaction. Transaction was not found.");
+                    return Result.Forbidden("Ledger mismatch for transaction delete request");
                 }
 
                 var accountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(existingTransaction.AccountId)

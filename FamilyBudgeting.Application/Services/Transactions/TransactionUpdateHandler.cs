@@ -58,27 +58,37 @@ namespace FamilyBudgeting.Domain.Services
                     return Result.NotFound("Unable to update transaction. Transaction was not found.");
                 }
 
-                var accountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(request.AccountId)
+                var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(userId, existingTransaction.LedgerId);
+                if (!accessResult.IsSuccess)
+                {
+                    return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
+                }
+
+                if (request.LedgerId.HasValue && request.LedgerId.Value != existingTransaction.LedgerId)
+                {
+                    return Result.Invalid(new ValidationError
+                    {
+                        Identifier = nameof(request.LedgerId),
+                        ErrorMessage = "Changing ledger for an existing transaction is not supported"
+                    });
+                }
+
+                if (request.AccountId != existingTransaction.AccountId)
+                {
+                    return Result.Invalid(new ValidationError
+                    {
+                        Identifier = nameof(request.AccountId),
+                        ErrorMessage = "Changing account for an existing transaction is not supported"
+                    });
+                }
+
+                var accountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(existingTransaction.AccountId)
                     .ForUpdate()
                     .QueryFirstOrDefaultAsync();
 
                 if (accountDto is null || accountDto.UserId != userId)
                 {
                     return Result.NotFound("Account not found or does not belong to the user");
-                }
-
-                var ledgerResult = await _transactionAccessPolicy.ResolveLedgerAsync(userId, request.LedgerId);
-                if (!ledgerResult.IsSuccess)
-                {
-                    return Result.NotFound(ledgerResult.Errors.FirstOrDefault() ?? "No ledgers found for the user");
-                }
-
-                var existingLedgerId = ledgerResult.Value;
-
-                var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(userId, existingLedgerId);
-                if (!accessResult.IsSuccess)
-                {
-                    return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
                 }
 
                 int centsAmount = MoneyConverter.ConvertToCents(request.Amount, accountDto.CurrencyFractionalUnitFactor);
@@ -91,7 +101,7 @@ namespace FamilyBudgeting.Domain.Services
                 }
 
                 var newTransaction = new Transaction(
-                    request.AccountId, existingLedgerId, request.TransactionTypeId,
+                    existingTransaction.AccountId, existingTransaction.LedgerId, request.TransactionTypeId,
                     request.CategoryId, accountDto.CurrencyId, centsAmount,
                     request.Date, request.Note, request.BudgetId, userId, request.BudgetCategoryId);
 
@@ -104,7 +114,7 @@ namespace FamilyBudgeting.Domain.Services
                 if (request.BudgetId is not null && request.BudgetCategoryId is not null)
                 {
                     var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(
-                        existingLedgerId, request.BudgetId.Value, request.BudgetCategoryId.Value);
+                        existingTransaction.LedgerId, request.BudgetId.Value, request.BudgetCategoryId.Value);
 
                     if (budgetCategoryDto is null)
                     {
