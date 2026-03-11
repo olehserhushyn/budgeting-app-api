@@ -1,6 +1,8 @@
 using Ardalis.Result;
 using FamilyBudgeting.Domain.Constants;
 using FamilyBudgeting.Domain.Core;
+using FamilyBudgeting.Domain.Data.Accounts;
+using FamilyBudgeting.Domain.Data.Categories;
 using FamilyBudgeting.Domain.Data.Transactions;
 using FamilyBudgeting.Domain.Interfaces.Queries;
 using FamilyBudgeting.Domain.Services.Interfaces;
@@ -16,8 +18,8 @@ namespace FamilyBudgeting.Domain.Services
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
         private readonly IAccountTypeService _accountTypeService;
         private readonly ICurrencyQueryService _currencyQueryService;
-        private readonly IAccountService _accountService;
-        private readonly ICategoryService _categoryService;
+        private readonly IAccountRepository _accountRepository;
+        private readonly ICategoryRepository _categoryRepository;
         private readonly ITransactionRepository _transactionRepository;
         private readonly ILogger<TransactionImportHandler> _logger;
 
@@ -28,8 +30,8 @@ namespace FamilyBudgeting.Domain.Services
             IAccountTypeService accountTypeService,
             ICurrencyQueryService currencyQueryService,
             IUnitOfWork unitOfWork,
-            IAccountService accountService,
-            ICategoryService categoryService,
+            IAccountRepository accountRepository,
+            ICategoryRepository categoryRepository,
             ITransactionRepository transactionRepository,
             ILogger<TransactionImportHandler> logger)
             : base(unitOfWork, logger)
@@ -39,8 +41,8 @@ namespace FamilyBudgeting.Domain.Services
             _transactionTypeQueryService = transactionTypeQueryService;
             _accountTypeService = accountTypeService;
             _currencyQueryService = currencyQueryService;
-            _accountService = accountService;
-            _categoryService = categoryService;
+            _accountRepository = accountRepository;
+            _categoryRepository = categoryRepository;
             _transactionRepository = transactionRepository;
             _logger = logger;
         }
@@ -95,27 +97,20 @@ namespace FamilyBudgeting.Domain.Services
                             continue;
                         }
 
-                        var createAccountReq = new DTOs.Requests.Accounts.CreateAccountRequest(defaultAccountType.Id, row.AccountName, 0, defaultCurrency.Id);
                         try
                         {
-                            var createResult = await _accountService.CreateAccountAsync(userId, createAccountReq);
-                            if (createResult.Status == ResultStatus.Ok)
+                            var newAccount = new Account(userId, defaultAccountType.Id, row.AccountName, 0, defaultCurrency.Id);
+                            var createdAccountId = await _accountRepository.CreateAccountAsync(newAccount);
+
+                            account = await _accountQueryService.GetAccountAsync(createdAccountId);
+                            if (account != null)
                             {
-                                account = (await _accountQueryService.GetAccountsAsync(userId)).FirstOrDefault(a => a.AccountTitle.Equals(row.AccountName, StringComparison.OrdinalIgnoreCase));
-                                if (account != null)
-                                {
-                                    accounts.Add(account);
-                                    _logger.LogInformation("Created new account: {AccountName}", row.AccountName);
-                                }
-                                else
-                                {
-                                    _logger.LogWarning("Account creation succeeded but account not found after creation: {AccountName}", row.AccountName);
-                                    continue;
-                                }
+                                accounts.Add(account);
+                                _logger.LogInformation("Created new account: {AccountName}", row.AccountName);
                             }
                             else
                             {
-                                _logger.LogWarning("Failed to create account: {AccountName} (Row: {@Row})", row.AccountName, row);
+                                _logger.LogWarning("Account creation succeeded but account not found after creation: {AccountName}", row.AccountName);
                                 continue;
                             }
                         }
@@ -126,31 +121,29 @@ namespace FamilyBudgeting.Domain.Services
                         }
                     }
 
+                    if (account is null)
+                    {
+                        _logger.LogWarning("Account resolution failed for import row. (Row: {@Row})", row);
+                        continue;
+                    }
+
                     Guid? categoryId = null;
                     var category = categories.FirstOrDefault(c => c.Title.Equals(row.Category, StringComparison.OrdinalIgnoreCase) && c.TransactionTypeId == type.Id);
                     if (category == null && !string.IsNullOrWhiteSpace(row.Category))
                     {
-                        var createCategoryReq = new DTOs.Requests.Categories.CreateLedgerCategoryRequest(ledgerId, row.Category, type.Id);
                         try
                         {
-                            var createCatResult = await _categoryService.CreateLedgerCategoryAsync(createCategoryReq);
-                            if (createCatResult.Status == ResultStatus.Ok)
+                            var newCategory = new Category(row.Category, ledgerId, type.Id);
+                            categoryId = await _categoryRepository.CreateCategoryAsync(newCategory);
+
+                            categories.Add(new DTOs.Models.Categories.CategoryDto
                             {
-                                categoryId = createCatResult.Value;
-                                categories.Add(new DTOs.Models.Categories.CategoryDto
-                                {
-                                    Id = categoryId.Value,
-                                    Title = row.Category,
-                                    LedgerId = ledgerId,
-                                    TransactionTypeId = type.Id
-                                });
-                                _logger.LogInformation("Created new category: {Category}", row.Category);
-                            }
-                            else
-                            {
-                                _logger.LogWarning("Failed to create category: {Category} (Row: {@Row})", row.Category, row);
-                                continue;
-                            }
+                                Id = categoryId.Value,
+                                Title = row.Category,
+                                LedgerId = ledgerId,
+                                TransactionTypeId = type.Id
+                            });
+                            _logger.LogInformation("Created new category: {Category}", row.Category);
                         }
                         catch (Exception ex)
                         {
@@ -171,6 +164,12 @@ namespace FamilyBudgeting.Domain.Services
 
                     var accountDto = await _accountQueryService.GetAccountCurrencyDetailsAsync(account.AccountId)
                         .ForUpdate().QueryFirstOrDefaultAsync();
+                    if (accountDto is null)
+                    {
+                        _logger.LogWarning("Account currency details not found for import row. AccountId: {AccountId} (Row: {@Row})", account.AccountId, row);
+                        continue;
+                    }
+
                     int centsAmount = MoneyConverter.ConvertToCents((double)row.Amount, accountDto.CurrencyFractionalUnitFactor);
                     int centsAmountWithSign = TransactionHelper.AdjustCentsSign(centsAmount, type.Title);
                     var transaction = new Transaction(account.AccountId, ledgerId, type.Id, categoryId, accountDto.CurrencyId, centsAmountWithSign, row.Date, row.Note, null, userId, null);
