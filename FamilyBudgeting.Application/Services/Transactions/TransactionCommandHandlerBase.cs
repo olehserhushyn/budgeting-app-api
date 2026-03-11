@@ -36,25 +36,5 @@ namespace FamilyBudgeting.Domain.Services
                 throw;
             }
         }
-
-        protected async Task<Result<T>> ExecuteInTransactionWithErrorAsync<T>(Func<Task<Result<T>>> operation, string errorLogMessage)
-        {
-            await _unitOfWork.BeginTransactionAsync();
-            try
-            {
-                var result = await operation();
-                if (result.IsSuccess)
-                    await _unitOfWork.CommitTransactionAsync();
-                else
-                    await _unitOfWork.RollbackTransactionAsync();
-                return result;
-            }
-            catch (Exception ex)
-            {
-                await _unitOfWork.RollbackTransactionAsync();
-                _logger.LogError(ex, errorLogMessage);
-                return Result<T>.Error(ex.Message);
-            }
-        }
     }
 }

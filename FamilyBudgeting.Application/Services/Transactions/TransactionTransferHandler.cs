@@ -38,7 +38,7 @@ namespace FamilyBudgeting.Domain.Services
 
         public async Task<Result<Guid>> HandleAsync(Guid userId, TransferTransactionRequest request)
         {
-            return await ExecuteInTransactionWithErrorAsync(async () =>
+            return await ExecuteInTransactionAsync(async () =>
             {
                 var ledgerResult = await _transactionAccessPolicy.ResolveLedgerAsync(userId, request.LedgerId);
                 if (!ledgerResult.IsSuccess)

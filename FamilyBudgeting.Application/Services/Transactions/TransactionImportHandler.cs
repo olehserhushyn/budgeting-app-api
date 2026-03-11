@@ -13,6 +13,7 @@ namespace FamilyBudgeting.Domain.Services
 {
     public class TransactionImportHandler : TransactionCommandHandlerBase, ITransactionImportHandler
     {
+        private readonly ITransactionAccessPolicy _transactionAccessPolicy;
         private readonly IAccountQueryService _accountQueryService;
         private readonly ICategoryQueryService _categoryQueryService;
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
@@ -24,6 +25,7 @@ namespace FamilyBudgeting.Domain.Services
         private readonly ILogger<TransactionImportHandler> _logger;
 
         public TransactionImportHandler(
+            ITransactionAccessPolicy transactionAccessPolicy,
             IAccountQueryService accountQueryService,
             ICategoryQueryService categoryQueryService,
             ITransactionTypeQueryService transactionTypeQueryService,
@@ -36,6 +38,7 @@ namespace FamilyBudgeting.Domain.Services
             ILogger<TransactionImportHandler> logger)
             : base(unitOfWork, logger)
         {
+            _transactionAccessPolicy = transactionAccessPolicy;
             _accountQueryService = accountQueryService;
             _categoryQueryService = categoryQueryService;
             _transactionTypeQueryService = transactionTypeQueryService;
@@ -61,6 +64,12 @@ namespace FamilyBudgeting.Domain.Services
                 return Result.Error("Unsupported file type. Only .csv, .xlsx, .xls are allowed.");
             }
 
+            var accessResult = await _transactionAccessPolicy.EnsureLedgerAccessAsync(userId, ledgerId);
+            if (!accessResult.IsSuccess)
+            {
+                return Result.Forbidden(accessResult.Errors.FirstOrDefault() ?? "User does not have access to this ledger");
+            }
+
             var accounts = (await _accountQueryService.GetAccountsAsync(userId)).ToList();
             var categories = (await _categoryQueryService.GetCategoriesAsync(ledgerId)).ToList();
             var transactionTypes = (await _transactionTypeQueryService.GetTransactionsTypesAsync()).ToList();
@@ -70,7 +79,7 @@ namespace FamilyBudgeting.Domain.Services
             var allowedTypes = new[] { TransactionTypes.Income, TransactionTypes.Expense };
             var allowedTypeIds = transactionTypes.Where(t => allowedTypes.Contains(t.Title, StringComparer.OrdinalIgnoreCase)).ToList();
 
-            return await ExecuteInTransactionWithErrorAsync(async () =>
+            return await ExecuteInTransactionAsync(async () =>
             {
                 var transactionsToInsert = new List<Transaction>();
                 int successCount = 0;
