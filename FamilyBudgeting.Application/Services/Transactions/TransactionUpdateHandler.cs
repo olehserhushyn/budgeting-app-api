@@ -1,7 +1,5 @@
 using Ardalis.Result;
 using FamilyBudgeting.Domain.Core;
-using FamilyBudgeting.Domain.Data.Accounts;
-using FamilyBudgeting.Domain.Data.BudgetCategories;
 using FamilyBudgeting.Domain.Data.Transactions;
 using FamilyBudgeting.Domain.DTOs.Requests.Transactions;
 using FamilyBudgeting.Domain.Interfaces.Queries;
@@ -18,9 +16,7 @@ namespace FamilyBudgeting.Domain.Services
         private readonly ITransactionAccessPolicy _transactionAccessPolicy;
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
         private readonly ITransactionRepository _transactionRepository;
-        private readonly IBudgetCategoryQueryService _budgetCategoryQueryService;
-        private readonly IBudgetCategoryRepository _budgetCategoryRepository;
-        private readonly IAccountRepository _accountRepository;
+        private readonly ITransactionPostingPolicy _transactionPostingPolicy;
 
         public TransactionUpdateHandler(
             ITransactionQueryService transactionQueryService,
@@ -28,9 +24,7 @@ namespace FamilyBudgeting.Domain.Services
             ITransactionAccessPolicy transactionAccessPolicy,
             ITransactionTypeQueryService transactionTypeQueryService,
             ITransactionRepository transactionRepository,
-            IBudgetCategoryQueryService budgetCategoryQueryService,
-            IBudgetCategoryRepository budgetCategoryRepository,
-            IAccountRepository accountRepository,
+            ITransactionPostingPolicy transactionPostingPolicy,
             IUnitOfWork unitOfWork,
             ILogger<TransactionUpdateHandler> logger)
         : base(unitOfWork, logger)
@@ -40,9 +34,7 @@ namespace FamilyBudgeting.Domain.Services
             _transactionAccessPolicy = transactionAccessPolicy;
             _transactionTypeQueryService = transactionTypeQueryService;
             _transactionRepository = transactionRepository;
-            _budgetCategoryQueryService = budgetCategoryQueryService;
-            _budgetCategoryRepository = budgetCategoryRepository;
-            _accountRepository = accountRepository;
+            _transactionPostingPolicy = transactionPostingPolicy;
         }
 
         public async Task<Result<bool>> HandleAsync(Guid userId, UpdateTransactionRequest request)
@@ -111,43 +103,27 @@ namespace FamilyBudgeting.Domain.Services
                     return Result.Error("Unexpected error during updating transaction");
                 }
 
-                if (request.BudgetId is not null && request.BudgetCategoryId is not null)
+                var newSignedAmount = TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title);
+
+                var budgetImpactResult = await _transactionPostingPolicy.ApplyBudgetImpactForUpdateAsync(existingTransaction.LedgerId, request, newSignedAmount);
+                if (!budgetImpactResult.IsSuccess)
                 {
-                    var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(
-                        existingTransaction.LedgerId, request.BudgetId.Value, request.BudgetCategoryId.Value);
-
-                    if (budgetCategoryDto is null)
+                    return budgetImpactResult.Status switch
                     {
-                        return Result.NotFound("Budget Category not found");
-                    }
-
-                    var budgetCategory = new BudgetCategory(
-                        request.BudgetId.Value, budgetCategoryDto.CategoryId,
-                        budgetCategoryDto.CurrencyId, budgetCategoryDto.PlannedAmount,
-                        budgetCategoryDto.CurrentAmount, budgetCategoryDto.InitialPlannedAmount);
-
-                    budgetCategory.AddTransaction(TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title));
-
-                    var budgetCategoryResult = await _budgetCategoryRepository.UpdateBudgetCategoryAsync(budgetCategoryDto.Id, budgetCategory);
-                    if (!budgetCategoryResult)
-                    {
-                        return Result.Error("Unexpected error during updating budget category");
-                    }
+                        ResultStatus.NotFound => Result.NotFound(budgetImpactResult.Errors.FirstOrDefault() ?? "Budget Category not found"),
+                        _ => Result.Error(budgetImpactResult.Errors.FirstOrDefault() ?? "Unexpected error during updating budget category")
+                    };
                 }
 
-                var account = new Account(
-                    accountDto.UserId, accountDto.AccountTypeId,
-                    accountDto.AccountTitle, accountDto.AccountBalance,
-                    accountDto.CurrencyId);
+                var existingSignedAmount = TransactionHelper.AdjustCentsSign(existingTransaction.Amount, existingTransactionType.Title);
 
-                account.UpdateTransaction(
-                    TransactionHelper.AdjustCentsSign(existingTransaction.Amount, existingTransactionType.Title),
-                    TransactionHelper.AdjustCentsSign(centsAmount, transactionType.Title));
-
-                bool accountResult = await _accountRepository.UpdateAccountAsync(accountDto.AccountId, account);
-                if (!accountResult)
+                var accountImpactResult = await _transactionPostingPolicy.ApplyAccountImpactForUpdateAsync(
+                    accountDto,
+                    existingSignedAmount,
+                    newSignedAmount);
+                if (!accountImpactResult.IsSuccess)
                 {
-                    return Result.Error("Unexpected error during updating account");
+                    return Result.Error(accountImpactResult.Errors.FirstOrDefault() ?? "Unexpected error during updating account");
                 }
 
                 return Result.Success(true);

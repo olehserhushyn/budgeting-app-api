@@ -1,11 +1,10 @@
 using Ardalis.Result;
 using FamilyBudgeting.Domain.Core;
-using FamilyBudgeting.Domain.Constants;
-using FamilyBudgeting.Domain.Data.Accounts;
 using FamilyBudgeting.Domain.Data.Transactions;
 using FamilyBudgeting.Domain.DTOs.Requests.Transactions;
 using FamilyBudgeting.Domain.Interfaces.Queries;
 using FamilyBudgeting.Domain.Services.Interfaces;
+using FamilyBudgeting.Domain.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace FamilyBudgeting.Domain.Services
@@ -17,7 +16,7 @@ namespace FamilyBudgeting.Domain.Services
         private readonly IAccountQueryService _accountQueryService;
         private readonly ITransactionTypeQueryService _transactionTypeQueryService;
         private readonly ITransactionRepository _transactionRepository;
-        private readonly IAccountRepository _accountRepository;
+        private readonly ITransactionPostingPolicy _transactionPostingPolicy;
 
         public TransactionDeleteHandler(
             ITransactionAccessPolicy transactionAccessPolicy,
@@ -25,7 +24,7 @@ namespace FamilyBudgeting.Domain.Services
             IAccountQueryService accountQueryService,
             ITransactionTypeQueryService transactionTypeQueryService,
             ITransactionRepository transactionRepository,
-            IAccountRepository accountRepository,
+            ITransactionPostingPolicy transactionPostingPolicy,
             IUnitOfWork unitOfWork,
             ILogger<TransactionDeleteHandler> logger)
         : base(unitOfWork, logger)
@@ -35,7 +34,7 @@ namespace FamilyBudgeting.Domain.Services
             _accountQueryService = accountQueryService;
             _transactionTypeQueryService = transactionTypeQueryService;
             _transactionRepository = transactionRepository;
-            _accountRepository = accountRepository;
+            _transactionPostingPolicy = transactionPostingPolicy;
         }
 
         public async Task<Result<bool>> HandleAsync(Guid userId, DeleteTransactionRequest request)
@@ -90,13 +89,12 @@ namespace FamilyBudgeting.Domain.Services
                     return Result.Error("Unexpected error during deleting transaction");
                 }
 
-                var account = new Account(accountDto.UserId, accountDto.AccountTypeId, accountDto.AccountTitle, accountDto.AccountBalance, accountDto.CurrencyId);
-                account.RemoveTransaction(existingTransactionType.Title == TransactionTypes.Expense ? existingTransaction.Amount * -1 : existingTransaction.Amount);
+                var existingSignedAmount = TransactionHelper.AdjustCentsSign(existingTransaction.Amount, existingTransactionType.Title);
 
-                bool accountResult = await _accountRepository.UpdateAccountAsync(accountDto.AccountId, account);
-                if (!accountResult)
+                var accountImpactResult = await _transactionPostingPolicy.ApplyAccountImpactForDeleteAsync(accountDto, existingSignedAmount);
+                if (!accountImpactResult.IsSuccess)
                 {
-                    return Result.Error("Unexpected error during updating account");
+                    return Result.Error(accountImpactResult.Errors.FirstOrDefault() ?? "Unexpected error during updating account");
                 }
 
                 return Result.Success(tranResult);

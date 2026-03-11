@@ -31,18 +31,79 @@ namespace FamilyBudgeting.Domain.Services
                 return Result.Success();
             }
 
-            var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(
+            return await ApplyBudgetCategoryTransactionAsync(
                 ledgerId,
                 request.BudgetId.Value,
-                request.BudgetCategoryId.Value);
+                request.BudgetCategoryId.Value,
+                centsAmountWithSign);
+        }
 
+        public async Task<Result> ApplyAccountImpactForCreateAsync(AccountCurrencyDetailsDto accountDto, int centsAmountWithSign)
+        {
+            var account = new Account(
+                accountDto.UserId,
+                accountDto.AccountTypeId,
+                accountDto.AccountTitle,
+                accountDto.AccountBalance,
+                accountDto.CurrencyId);
+
+            account.AddTransaction(centsAmountWithSign);
+
+            return await UpdateAccountAsync(accountDto.AccountId, account);
+        }
+
+        public async Task<Result> ApplyBudgetImpactForUpdateAsync(Guid ledgerId, UpdateTransactionRequest request, int newCentsAmountWithSign)
+        {
+            if (request.BudgetId is null || request.BudgetCategoryId is null)
+            {
+                return Result.Success();
+            }
+
+            return await ApplyBudgetCategoryTransactionAsync(
+                ledgerId,
+                request.BudgetId.Value,
+                request.BudgetCategoryId.Value,
+                newCentsAmountWithSign);
+        }
+
+        public async Task<Result> ApplyAccountImpactForUpdateAsync(AccountCurrencyDetailsDto accountDto, int existingCentsAmountWithSign, int newCentsAmountWithSign)
+        {
+            var account = new Account(
+                accountDto.UserId,
+                accountDto.AccountTypeId,
+                accountDto.AccountTitle,
+                accountDto.AccountBalance,
+                accountDto.CurrencyId);
+
+            account.UpdateTransaction(existingCentsAmountWithSign, newCentsAmountWithSign);
+
+            return await UpdateAccountAsync(accountDto.AccountId, account);
+        }
+
+        public async Task<Result> ApplyAccountImpactForDeleteAsync(AccountCurrencyDetailsDto accountDto, int existingCentsAmountWithSign)
+        {
+            var account = new Account(
+                accountDto.UserId,
+                accountDto.AccountTypeId,
+                accountDto.AccountTitle,
+                accountDto.AccountBalance,
+                accountDto.CurrencyId);
+
+            account.RemoveTransaction(existingCentsAmountWithSign);
+
+            return await UpdateAccountAsync(accountDto.AccountId, account);
+        }
+
+        private async Task<Result> ApplyBudgetCategoryTransactionAsync(Guid ledgerId, Guid budgetId, Guid budgetCategoryId, int centsAmountWithSign)
+        {
+            var budgetCategoryDto = await _budgetCategoryQueryService.GetBudgetCategoryAsync(ledgerId, budgetId, budgetCategoryId);
             if (budgetCategoryDto is null)
             {
                 return Result.NotFound("Budget Category not found");
             }
 
             var budgetCategory = new BudgetCategory(
-                request.BudgetId.Value,
+                budgetId,
                 budgetCategoryDto.CategoryId,
                 budgetCategoryDto.CurrencyId,
                 budgetCategoryDto.PlannedAmount,
@@ -60,18 +121,9 @@ namespace FamilyBudgeting.Domain.Services
             return Result.Success();
         }
 
-        public async Task<Result> ApplyAccountImpactForCreateAsync(AccountCurrencyDetailsDto accountDto, int centsAmountWithSign)
+        private async Task<Result> UpdateAccountAsync(Guid accountId, Account account)
         {
-            var account = new Account(
-                accountDto.UserId,
-                accountDto.AccountTypeId,
-                accountDto.AccountTitle,
-                accountDto.AccountBalance,
-                accountDto.CurrencyId);
-
-            account.AddTransaction(centsAmountWithSign);
-
-            var accountResult = await _accountRepository.UpdateAccountAsync(accountDto.AccountId, account);
+            var accountResult = await _accountRepository.UpdateAccountAsync(accountId, account);
             if (!accountResult)
             {
                 return Result.Error("Unexpected error during updating account");
